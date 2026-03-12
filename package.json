@@ -1,0 +1,35 @@
+{
+  "name": "ocr-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for OCR transcription of Spanish children's books from Google Drive",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "build:ui": "vite build",
+    "build:all": "npm run build:ui && npm run build",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@modelcontextprotocol/ext-apps": "^1.2.0",
+    "@modelcontextprotocol/sdk": "^1.10.1",
+    "better-sqlite3": "^11.9.1",
+    "canvas": "^3.1.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "googleapis": "^144.0.0",
+    "open": "^10.1.0",
+    "pdfjs-dist": "^4.10.38"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.9",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vite": "^6.4.1",
+    "vite-plugin-singlefile": "^2.3.0"
+  }
+}
