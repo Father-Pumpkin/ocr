@@ -20,6 +20,7 @@ import { z } from 'zod';
 import fs from 'fs';
 
 import { getAdapter, getInProgressBatchJobs, getAllBooks, getBookByName, getPages } from './database.js';
+import { listPdfsInFolder } from './google-drive.js';
 import { listBooks } from './tools/list-books.js';
 import { transcribeBooks } from './tools/transcribe-books.js';
 import { getTranscription } from './tools/get-transcription.js';
@@ -250,7 +251,28 @@ registerAppTool(
     _meta: { ui: { resourceUri: VIEWER_RESOURCE_URI } },
   },
   async () => {
-    const books = await getAllBooks();
+    const [dbBooks, driveFiles] = await Promise.all([
+      getAllBooks(),
+      listPdfsInFolder().catch(() => []),
+    ]);
+
+    const dbByDriveId = new Map(dbBooks.map((b) => [b.drive_file_id, b]));
+
+    // All Drive files, with DB data merged in; unknown Drive files get status 'pending'
+    const books = driveFiles.length > 0
+      ? driveFiles.map((file) => dbByDriveId.get(file.id) ?? {
+          id: -1,
+          title: file.name.replace(/\.pdf$/i, ''),
+          drive_file_id: file.id,
+          drive_file_name: file.name,
+          page_count: null,
+          status: 'pending',
+          created_by: null,
+          created_at: '',
+          updated_at: '',
+        })
+      : dbBooks; // fallback to DB-only if Drive unavailable
+
     return {
       content: [{ type: 'text', text: `Library: ${books.length} book(s) available.` }],
       structuredContent: { books },

@@ -26,9 +26,9 @@ interface Page {
   book_id: number;
   page_number: number;
   transcription: string | null;
-  has_illustration: number; // SQLite 0 | 1
-  is_edited: number;        // SQLite 0 | 1
-  tags: string[];           // parsed from JSON in DB
+  has_illustration: boolean | number;
+  is_edited: boolean | number;
+  tags: string[];
   status: string;
   batch_custom_id: string | null;
   created_at: string;
@@ -52,12 +52,12 @@ const PRESET_TAGS = [
 interface State {
   view: 'library' | 'book';
   books: Book[];
-  transcribingBooks: Set<string>; // book titles currently being transcribed
+  transcribingBooks: Set<string>;
   currentBook: Book | null;
   currentPages: Page[];
   loadingPages: boolean;
   editingPage: number | null;
-  tagPickerPage: number | null; // page_number with open tag picker
+  tagPickerPage: number | null;
 }
 
 const state: State = {
@@ -84,7 +84,6 @@ function handleHostContextChanged(ctx: McpUiHostContext): void {
 mcpApp.onhostcontextchanged = handleHostContextChanged;
 mcpApp.onerror = console.error;
 
-// Initial tool result: library push from view_transcriptions
 mcpApp.ontoolresult = (result: CallToolResult) => {
   const data = result.structuredContent as { books?: Book[] } | undefined;
   if (data?.books) {
@@ -160,7 +159,7 @@ function renderLibrary(): void {
   if (state.books.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.innerHTML = '<div class="icon">📚</div><p>No books yet. Use <code>transcribe_books</code> to get started.</p>';
+    empty.innerHTML = '<p>No books found. Check your Google Drive folder configuration.</p>';
     main.append(empty);
     return;
   }
@@ -173,10 +172,14 @@ function renderLibrary(): void {
   main.append(grid);
 }
 
+function cardId(book: Book): string {
+  return `book-card-${book.drive_file_id}`;
+}
+
 function buildBookCard(book: Book): HTMLElement {
   const card = document.createElement('div');
   card.className = 'book-card';
-  card.id = `book-card-${book.id}`;
+  card.id = cardId(book);
 
   const title = document.createElement('div');
   title.className = 'title';
@@ -191,19 +194,14 @@ function buildBookCard(book: Book): HTMLElement {
 
   card.append(title, meta);
 
-  // Click on card body → open book (if transcribed)
   if (book.status === 'complete') {
     card.addEventListener('click', () => openBook(book));
-  }
-
-  // Transcribe button for non-complete books
-  if (book.status !== 'complete') {
+  } else {
     const btn = document.createElement('button');
     btn.className = 'transcribe-btn';
     const isTranscribing = state.transcribingBooks.has(book.title);
-    btn.textContent = isTranscribing ? '⏳ Transcribing…' : 'Transcribe';
+    btn.textContent = isTranscribing ? 'Transcribing…' : 'Transcribe';
     btn.disabled = isTranscribing;
-
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       triggerTranscription(book);
@@ -220,7 +218,7 @@ async function refreshLibrary(): Promise<void> {
     const data = result.structuredContent as { books?: Book[] } | undefined;
     if (data?.books) state.books = data.books;
   } catch {
-    // Silently keep existing books on error
+    // keep existing books on error
   }
   renderLibrary();
 }
@@ -228,7 +226,7 @@ async function refreshLibrary(): Promise<void> {
 async function triggerTranscription(book: Book): Promise<void> {
   state.transcribingBooks.add(book.title);
   updateBookCard(book);
-  toast(`Transcribing "${book.title}"… this may take a few minutes.`);
+  toast(`Transcribing "${book.title}"…`);
 
   try {
     await mcpApp.callServerTool({
@@ -244,9 +242,8 @@ async function triggerTranscription(book: Book): Promise<void> {
   }
 }
 
-/** Rebuild and swap just one book card without re-rendering the whole grid. */
 function updateBookCard(book: Book): void {
-  const existing = document.getElementById(`book-card-${book.id}`);
+  const existing = document.getElementById(cardId(book));
   if (!existing) return;
   existing.replaceWith(buildBookCard(book));
 }
@@ -299,17 +296,6 @@ function renderBookShell(): void {
   main.id = 'book-main';
   app.append(main);
 
-  const bookHeader = document.createElement('div');
-  bookHeader.className = 'book-header';
-  const backBtn = document.createElement('button');
-  backBtn.className = 'back-btn';
-  backBtn.textContent = '← Back';
-  backBtn.addEventListener('click', renderLibrary);
-  const titleEl = document.createElement('h2');
-  titleEl.textContent = state.currentBook!.title;
-  bookHeader.append(backBtn, titleEl, makeBadge(state.currentBook!.status));
-  main.append(bookHeader);
-
   const spinner = document.createElement('div');
   spinner.className = 'spinner';
   spinner.id = 'pages-spinner';
@@ -342,10 +328,10 @@ function renderBookPages(): void {
 // ── Page item ──────────────────────────────────────────────────────────────
 
 function buildPageItem(page: Page): HTMLElement {
-  const isEditing    = state.editingPage === page.page_number;
-  const isTagPicker  = state.tagPickerPage === page.page_number;
-  const isIllus      = page.has_illustration === 1;
-  const isEdited     = page.is_edited === 1;
+  const isEditing   = state.editingPage === page.page_number;
+  const isTagPicker = state.tagPickerPage === page.page_number;
+  const isIllus     = Boolean(page.has_illustration);
+  const isEdited    = Boolean(page.is_edited);
 
   const item = document.createElement('div');
   item.className = 'page-item';
@@ -386,7 +372,7 @@ function buildPageItem(page: Page): HTMLElement {
   } else {
     const editBtn = document.createElement('button');
     editBtn.className = 'btn btn-edit';
-    editBtn.textContent = '✎ Edit';
+    editBtn.textContent = 'Edit';
     editBtn.addEventListener('click', () => {
       state.editingPage = page.page_number;
       state.tagPickerPage = null;
@@ -403,11 +389,13 @@ function buildPageItem(page: Page): HTMLElement {
   head.append(label, actions);
   item.append(head);
 
-  // ── Tags section ──────────────────────────────────────────────────────────
-  const tagsSection = buildTagsSection(page, isTagPicker);
-  item.append(tagsSection);
+  // ── Tags ──────────────────────────────────────────────────────────────────
+  if (page.tags.length > 0 || isTagPicker) {
+    item.append(buildTagsSection(page, isTagPicker));
+  } else {
+    item.append(buildTagsSection(page, false));
+  }
 
-  // ── Tag picker ────────────────────────────────────────────────────────────
   if (isTagPicker) {
     item.append(buildTagPicker(page));
   }
@@ -425,7 +413,7 @@ function buildPageItem(page: Page): HTMLElement {
   } else if (isIllus) {
     const ph = document.createElement('div');
     ph.className = 'illus-placeholder';
-    ph.textContent = '🖼 Illustration only';
+    ph.textContent = 'Illustration only';
     body.append(ph);
   } else {
     const txt = document.createElement('div');
@@ -479,12 +467,6 @@ function buildTagPicker(page: Page): HTMLElement {
   const picker = document.createElement('div');
   picker.className = 'tag-picker';
 
-  const label = document.createElement('div');
-  label.className = 'tag-picker-label';
-  label.textContent = 'Add tag';
-  picker.append(label);
-
-  // Preset tags (exclude ones already applied)
   const presets = PRESET_TAGS.filter((t) => !page.tags.includes(t));
   if (presets.length > 0) {
     const presetRow = document.createElement('div');
@@ -499,7 +481,6 @@ function buildTagPicker(page: Page): HTMLElement {
     picker.append(presetRow);
   }
 
-  // Custom tag input
   const customRow = document.createElement('div');
   customRow.className = 'tag-custom-row';
 
@@ -554,13 +535,11 @@ async function doAddTag(page: Page, tag: string): Promise<void> {
     refreshPage(page);
     return;
   }
-  const newTags = [...page.tags, tag];
-  await saveTagsForPage(page, newTags);
+  await saveTagsForPage(page, [...page.tags, tag]);
 }
 
 async function doRemoveTag(page: Page, tag: string): Promise<void> {
-  const newTags = page.tags.filter((t) => t !== tag);
-  await saveTagsForPage(page, newTags);
+  await saveTagsForPage(page, page.tags.filter((t) => t !== tag));
 }
 
 async function saveTagsForPage(page: Page, newTags: string[]): Promise<void> {
@@ -605,8 +584,8 @@ async function doSave(page: Page): Promise<void> {
       },
     });
     page.transcription = newText;
-    page.is_edited = 1;
-    page.has_illustration = newText === '[ILLUSTRATION]' ? 1 : 0;
+    page.is_edited = true;
+    page.has_illustration = newText === '[ILLUSTRATION]';
     state.editingPage = null;
     refreshPage(page);
     toast(`Page ${page.page_number} saved.`);
@@ -623,17 +602,14 @@ async function doSave(page: Page): Promise<void> {
 // ── Parse pages from tool result ───────────────────────────────────────────
 
 function extractPages(result: CallToolResult): Page[] {
-  // Prefer structuredContent { pages: PageRow[] } from the server
   const structured = result.structuredContent as { pages?: Array<Omit<Page, 'tags'> & { tags?: string | string[] }> } | undefined;
   if (structured?.pages) {
     return structured.pages.map((p) => ({
       ...p,
-      // tags comes as a JSON string from SQLite; parse it here
       tags: parseTags(p.tags),
     }));
   }
 
-  // Fall back to parsing the text response
   const textBlock = result.content?.find((c) => c.type === 'text');
   if (!textBlock || textBlock.type !== 'text') return [];
 
@@ -650,8 +626,8 @@ function extractPages(result: CallToolResult): Page[] {
       book_id: state.currentBook!.id,
       page_number: pageNumber,
       transcription,
-      has_illustration: transcription === '[ILLUSTRATION]' ? 1 : 0,
-      is_edited: 0,
+      has_illustration: transcription === '[ILLUSTRATION]',
+      is_edited: false,
       tags: [],
       status: 'complete',
       batch_custom_id: null,
