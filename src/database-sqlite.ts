@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow } from './database-adapter.js';
+import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow } from './database-adapter.js';
 
 // SQLite raw row types (booleans stored as 0/1 integers)
 interface SqlitePageRow {
@@ -83,6 +83,29 @@ export class SqliteAdapter implements DatabaseAdapter {
         created_by   TEXT,
         created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
         completed_at DATETIME
+      );
+
+      CREATE TABLE IF NOT EXISTS dimensions (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL UNIQUE,
+        description TEXT NOT NULL,
+        min_label   TEXT NOT NULL DEFAULT 'Low',
+        max_label   TEXT NOT NULL DEFAULT 'High',
+        created_by  TEXT,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS page_sentiment (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        page_id      INTEGER NOT NULL REFERENCES pages(id),
+        dimension_id INTEGER NOT NULL REFERENCES dimensions(id) ON DELETE CASCADE,
+        score        REAL NOT NULL CHECK (score >= 0.0 AND score <= 1.0),
+        rationale    TEXT,
+        model        TEXT,
+        created_by   TEXT,
+        created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(page_id, dimension_id)
       );
     `);
   }
@@ -265,6 +288,127 @@ export class SqliteAdapter implements DatabaseAdapter {
   async getInProgressBatchJobs(): Promise<BatchJobRow[]> {
     return Promise.resolve(
       this.db.prepare(`SELECT * FROM batch_jobs WHERE status = 'in_progress'`).all() as BatchJobRow[]
+    );
+  }
+
+  // ---- Dimension helpers ----
+
+  async createDimension(name: string, description: string, minLabel: string, maxLabel: string): Promise<DimensionRow> {
+    const createdBy = process.env.APP_USER_ID ?? null;
+    this.db.prepare(`
+      INSERT INTO dimensions (name, description, min_label, max_label, created_by)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(name, description, minLabel, maxLabel, createdBy);
+
+    return Promise.resolve(
+      this.db.prepare('SELECT * FROM dimensions WHERE name = ?').get(name) as DimensionRow
+    );
+  }
+
+  async getDimensionByName(name: string): Promise<DimensionRow | undefined> {
+    return Promise.resolve(
+      this.db.prepare('SELECT * FROM dimensions WHERE name = ?').get(name) as DimensionRow | undefined
+    );
+  }
+
+  async getAllDimensions(): Promise<DimensionRow[]> {
+    return Promise.resolve(
+      this.db.prepare('SELECT * FROM dimensions ORDER BY name').all() as DimensionRow[]
+    );
+  }
+
+  async updateDimension(id: number, fields: { description?: string; minLabel?: string; maxLabel?: string }): Promise<DimensionRow | undefined> {
+    const setClauses: string[] = [];
+    const values: unknown[] = [];
+
+    if (fields.description !== undefined) {
+      setClauses.push('description = ?');
+      values.push(fields.description);
+    }
+    if (fields.minLabel !== undefined) {
+      setClauses.push('min_label = ?');
+      values.push(fields.minLabel);
+    }
+    if (fields.maxLabel !== undefined) {
+      setClauses.push('max_label = ?');
+      values.push(fields.maxLabel);
+    }
+
+    if (setClauses.length === 0) {
+      return Promise.resolve(
+        this.db.prepare('SELECT * FROM dimensions WHERE id = ?').get(id) as DimensionRow | undefined
+      );
+    }
+
+    setClauses.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(id);
+
+    this.db.prepare(`
+      UPDATE dimensions SET ${setClauses.join(', ')} WHERE id = ?
+    `).run(...values);
+
+    return Promise.resolve(
+      this.db.prepare('SELECT * FROM dimensions WHERE id = ?').get(id) as DimensionRow | undefined
+    );
+  }
+
+  async deleteDimension(id: number): Promise<boolean> {
+    const result = this.db.prepare('DELETE FROM dimensions WHERE id = ?').run(id);
+    return Promise.resolve(result.changes > 0);
+  }
+
+  // ---- Page sentiment helpers ----
+
+  async upsertPageSentiment(pageId: number, dimensionId: number, score: number, rationale: string | null, model: string | null): Promise<PageSentimentRow> {
+    const createdBy = process.env.APP_USER_ID ?? null;
+    this.db.prepare(`
+      INSERT INTO page_sentiment (page_id, dimension_id, score, rationale, model, created_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(page_id, dimension_id) DO UPDATE SET
+        score     = excluded.score,
+        rationale = excluded.rationale,
+        model     = excluded.model,
+        created_by = excluded.created_by
+    `).run(pageId, dimensionId, score, rationale, model, createdBy);
+
+    return Promise.resolve(
+      this.db.prepare('SELECT * FROM page_sentiment WHERE page_id = ? AND dimension_id = ?').get(pageId, dimensionId) as PageSentimentRow
+    );
+  }
+
+  async getPageSentiment(pageId: number): Promise<PageSentimentRow[]> {
+    return Promise.resolve(
+      this.db.prepare('SELECT * FROM page_sentiment WHERE page_id = ? ORDER BY dimension_id').all(pageId) as PageSentimentRow[]
+    );
+  }
+
+  async getBookSentiment(bookId: number, dimensionIds?: number[], pageStart?: number, pageEnd?: number): Promise<PageSentimentRow[]> {
+    const conditions: string[] = ['pages.book_id = ?'];
+    const values: unknown[] = [bookId];
+
+    if (dimensionIds && dimensionIds.length > 0) {
+      conditions.push(`page_sentiment.dimension_id IN (${dimensionIds.map(() => '?').join(', ')})`);
+      values.push(...dimensionIds);
+    }
+    if (pageStart !== undefined) {
+      conditions.push('pages.page_number >= ?');
+      values.push(pageStart);
+    }
+    if (pageEnd !== undefined) {
+      conditions.push('pages.page_number <= ?');
+      values.push(pageEnd);
+    }
+
+    const sql = `
+      SELECT page_sentiment.*
+      FROM page_sentiment
+      JOIN pages ON page_sentiment.page_id = pages.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY pages.page_number, page_sentiment.dimension_id
+    `;
+
+    return Promise.resolve(
+      this.db.prepare(sql).all(...values) as PageSentimentRow[]
     );
   }
 }

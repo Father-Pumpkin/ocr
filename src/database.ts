@@ -1,10 +1,10 @@
 import { SqliteAdapter } from './database-sqlite.js';
 import { createPostgresAdapter } from './database-postgres.js';
-import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow } from './database-adapter.js';
+import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow } from './database-adapter.js';
 import os from 'os';
 import path from 'path';
 
-export type { BookRow, PageRow, BatchJobRow };
+export type { BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow };
 
 let _adapter: DatabaseAdapter | null = null;
 
@@ -35,3 +35,11 @@ export async function createBatchJob(batchId: string, bookIds: number[]) { retur
 export async function getBatchJob(batchId: string) { return (await getAdapter()).getBatchJob(batchId); }
 export async function updateBatchJobStatus(batchId: string, status: string) { return (await getAdapter()).updateBatchJobStatus(batchId, status); }
 export async function getInProgressBatchJobs() { return (await getAdapter()).getInProgressBatchJobs(); }
+export async function createDimension(name: string, description: string, minLabel: string, maxLabel: string) { return (await getAdapter()).createDimension(name, description, minLabel, maxLabel); }
+export async function getDimensionByName(name: string) { return (await getAdapter()).getDimensionByName(name); }
+export async function getAllDimensions() { return (await getAdapter()).getAllDimensions(); }
+export async function updateDimension(id: number, fields: { description?: string; minLabel?: string; maxLabel?: string }) { return (await getAdapter()).updateDimension(id, fields); }
+export async function deleteDimension(id: number) { return (await getAdapter()).deleteDimension(id); }
+export async function upsertPageSentiment(pageId: number, dimensionId: number, score: number, rationale: string | null, model: string | null) { return (await getAdapter()).upsertPageSentiment(pageId, dimensionId, score, rationale, model); }
+export async function getPageSentiment(pageId: number) { return (await getAdapter()).getPageSentiment(pageId); }
+export async function getBookSentiment(bookId: number, dimensionIds?: number[], pageStart?: number, pageEnd?: number) { return (await getAdapter()).getBookSentiment(bookId, dimensionIds, pageStart, pageEnd); }

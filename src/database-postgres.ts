@@ -1,5 +1,5 @@
 import postgres from 'postgres';
-import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow } from './database-adapter.js';
+import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow } from './database-adapter.js';
 
 // Raw Postgres row types (dates come back as Date objects from the driver)
 interface PgBookRow {
@@ -39,6 +39,28 @@ interface PgBatchJobRow {
   completed_at: Date | null;
 }
 
+interface PgDimensionRow {
+  id: number;
+  name: string;
+  description: string;
+  min_label: string;
+  max_label: string;
+  created_by: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface PgPageSentimentRow {
+  id: number;
+  page_id: number;
+  dimension_id: number;
+  score: number;
+  rationale: string | null;
+  model: string | null;
+  created_by: string | null;
+  created_at: Date;
+}
+
 function coerceBook(row: PgBookRow): BookRow {
   return {
     ...row,
@@ -62,6 +84,21 @@ function coerceBatchJob(row: PgBatchJobRow): BatchJobRow {
     book_ids: JSON.stringify(row.book_ids ?? []),
     created_at: row.created_at.toISOString(),
     completed_at: row.completed_at ? row.completed_at.toISOString() : null,
+  };
+}
+
+function coerceDimension(row: PgDimensionRow): DimensionRow {
+  return {
+    ...row,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
+  };
+}
+
+function coercePageSentiment(row: PgPageSentimentRow): PageSentimentRow {
+  return {
+    ...row,
+    created_at: row.created_at.toISOString(),
   };
 }
 
@@ -114,6 +151,33 @@ export class PostgresAdapter implements DatabaseAdapter {
         created_by   TEXT,
         created_at   TIMESTAMPTZ DEFAULT NOW(),
         completed_at TIMESTAMPTZ
+      )
+    `;
+
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS dimensions (
+        id          SERIAL PRIMARY KEY,
+        name        TEXT NOT NULL UNIQUE,
+        description TEXT NOT NULL,
+        min_label   TEXT NOT NULL DEFAULT 'Low',
+        max_label   TEXT NOT NULL DEFAULT 'High',
+        created_by  TEXT,
+        created_at  TIMESTAMPTZ DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS page_sentiment (
+        id           SERIAL PRIMARY KEY,
+        page_id      INTEGER NOT NULL REFERENCES pages(id),
+        dimension_id INTEGER NOT NULL REFERENCES dimensions(id) ON DELETE CASCADE,
+        score        FLOAT NOT NULL CHECK (score >= 0.0 AND score <= 1.0),
+        rationale    TEXT,
+        model        TEXT,
+        created_by   TEXT,
+        created_at   TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(page_id, dimension_id)
       )
     `;
   }
@@ -275,6 +339,169 @@ export class PostgresAdapter implements DatabaseAdapter {
       SELECT * FROM batch_jobs WHERE status = 'in_progress'
     `;
     return rows.map(coerceBatchJob);
+  }
+
+  // ---- Dimension helpers ----
+
+  async createDimension(name: string, description: string, minLabel: string, maxLabel: string): Promise<DimensionRow> {
+    const createdBy = process.env.APP_USER_ID ?? null;
+    const rows = await this.sql<PgDimensionRow[]>`
+      INSERT INTO dimensions (name, description, min_label, max_label, created_by)
+      VALUES (${name}, ${description}, ${minLabel}, ${maxLabel}, ${createdBy})
+      RETURNING *
+    `;
+    return coerceDimension(rows[0]);
+  }
+
+  async getDimensionByName(name: string): Promise<DimensionRow | undefined> {
+    const rows = await this.sql<PgDimensionRow[]>`
+      SELECT * FROM dimensions WHERE name = ${name}
+    `;
+    return rows.length > 0 ? coerceDimension(rows[0]) : undefined;
+  }
+
+  async getAllDimensions(): Promise<DimensionRow[]> {
+    const rows = await this.sql<PgDimensionRow[]>`
+      SELECT * FROM dimensions ORDER BY name
+    `;
+    return rows.map(coerceDimension);
+  }
+
+  async updateDimension(id: number, fields: { description?: string; minLabel?: string; maxLabel?: string }): Promise<DimensionRow | undefined> {
+    const setFields: Record<string, unknown> = { updated_at: new Date() };
+
+    if (fields.description !== undefined) setFields['description'] = fields.description;
+    if (fields.minLabel !== undefined) setFields['min_label'] = fields.minLabel;
+    if (fields.maxLabel !== undefined) setFields['max_label'] = fields.maxLabel;
+
+    // If only updated_at, nothing meaningful to update — just return current row
+    if (Object.keys(setFields).length === 1) {
+      const rows = await this.sql<PgDimensionRow[]>`SELECT * FROM dimensions WHERE id = ${id}`;
+      return rows.length > 0 ? coerceDimension(rows[0]) : undefined;
+    }
+
+    const rows = await this.sql<PgDimensionRow[]>`
+      UPDATE dimensions
+      SET ${this.sql(setFields)}
+      WHERE id = ${id}
+      RETURNING *
+    `;
+    return rows.length > 0 ? coerceDimension(rows[0]) : undefined;
+  }
+
+  async deleteDimension(id: number): Promise<boolean> {
+    const result = await this.sql`
+      DELETE FROM dimensions WHERE id = ${id}
+    `;
+    return result.count > 0;
+  }
+
+  // ---- Page sentiment helpers ----
+
+  async upsertPageSentiment(pageId: number, dimensionId: number, score: number, rationale: string | null, model: string | null): Promise<PageSentimentRow> {
+    const createdBy = process.env.APP_USER_ID ?? null;
+    const rows = await this.sql<PgPageSentimentRow[]>`
+      INSERT INTO page_sentiment (page_id, dimension_id, score, rationale, model, created_by)
+      VALUES (${pageId}, ${dimensionId}, ${score}, ${rationale}, ${model}, ${createdBy})
+      ON CONFLICT(page_id, dimension_id) DO UPDATE SET
+        score      = EXCLUDED.score,
+        rationale  = EXCLUDED.rationale,
+        model      = EXCLUDED.model,
+        created_by = EXCLUDED.created_by
+      RETURNING *
+    `;
+    return coercePageSentiment(rows[0]);
+  }
+
+  async getPageSentiment(pageId: number): Promise<PageSentimentRow[]> {
+    const rows = await this.sql<PgPageSentimentRow[]>`
+      SELECT * FROM page_sentiment WHERE page_id = ${pageId} ORDER BY dimension_id
+    `;
+    return rows.map(coercePageSentiment);
+  }
+
+  async getBookSentiment(bookId: number, dimensionIds?: number[], pageStart?: number, pageEnd?: number): Promise<PageSentimentRow[]> {
+    let rows: PgPageSentimentRow[];
+
+    if (dimensionIds && dimensionIds.length > 0 && pageStart !== undefined && pageEnd !== undefined) {
+      rows = await this.sql<PgPageSentimentRow[]>`
+        SELECT page_sentiment.*
+        FROM page_sentiment
+        JOIN pages ON page_sentiment.page_id = pages.id
+        WHERE pages.book_id = ${bookId}
+          AND page_sentiment.dimension_id = ANY(${this.sql.array(dimensionIds)})
+          AND pages.page_number >= ${pageStart}
+          AND pages.page_number <= ${pageEnd}
+        ORDER BY pages.page_number, page_sentiment.dimension_id
+      `;
+    } else if (dimensionIds && dimensionIds.length > 0 && pageStart !== undefined) {
+      rows = await this.sql<PgPageSentimentRow[]>`
+        SELECT page_sentiment.*
+        FROM page_sentiment
+        JOIN pages ON page_sentiment.page_id = pages.id
+        WHERE pages.book_id = ${bookId}
+          AND page_sentiment.dimension_id = ANY(${this.sql.array(dimensionIds)})
+          AND pages.page_number >= ${pageStart}
+        ORDER BY pages.page_number, page_sentiment.dimension_id
+      `;
+    } else if (dimensionIds && dimensionIds.length > 0 && pageEnd !== undefined) {
+      rows = await this.sql<PgPageSentimentRow[]>`
+        SELECT page_sentiment.*
+        FROM page_sentiment
+        JOIN pages ON page_sentiment.page_id = pages.id
+        WHERE pages.book_id = ${bookId}
+          AND page_sentiment.dimension_id = ANY(${this.sql.array(dimensionIds)})
+          AND pages.page_number <= ${pageEnd}
+        ORDER BY pages.page_number, page_sentiment.dimension_id
+      `;
+    } else if (dimensionIds && dimensionIds.length > 0) {
+      rows = await this.sql<PgPageSentimentRow[]>`
+        SELECT page_sentiment.*
+        FROM page_sentiment
+        JOIN pages ON page_sentiment.page_id = pages.id
+        WHERE pages.book_id = ${bookId}
+          AND page_sentiment.dimension_id = ANY(${this.sql.array(dimensionIds)})
+        ORDER BY pages.page_number, page_sentiment.dimension_id
+      `;
+    } else if (pageStart !== undefined && pageEnd !== undefined) {
+      rows = await this.sql<PgPageSentimentRow[]>`
+        SELECT page_sentiment.*
+        FROM page_sentiment
+        JOIN pages ON page_sentiment.page_id = pages.id
+        WHERE pages.book_id = ${bookId}
+          AND pages.page_number >= ${pageStart}
+          AND pages.page_number <= ${pageEnd}
+        ORDER BY pages.page_number, page_sentiment.dimension_id
+      `;
+    } else if (pageStart !== undefined) {
+      rows = await this.sql<PgPageSentimentRow[]>`
+        SELECT page_sentiment.*
+        FROM page_sentiment
+        JOIN pages ON page_sentiment.page_id = pages.id
+        WHERE pages.book_id = ${bookId}
+          AND pages.page_number >= ${pageStart}
+        ORDER BY pages.page_number, page_sentiment.dimension_id
+      `;
+    } else if (pageEnd !== undefined) {
+      rows = await this.sql<PgPageSentimentRow[]>`
+        SELECT page_sentiment.*
+        FROM page_sentiment
+        JOIN pages ON page_sentiment.page_id = pages.id
+        WHERE pages.book_id = ${bookId}
+          AND pages.page_number <= ${pageEnd}
+        ORDER BY pages.page_number, page_sentiment.dimension_id
+      `;
+    } else {
+      rows = await this.sql<PgPageSentimentRow[]>`
+        SELECT page_sentiment.*
+        FROM page_sentiment
+        JOIN pages ON page_sentiment.page_id = pages.id
+        WHERE pages.book_id = ${bookId}
+        ORDER BY pages.page_number, page_sentiment.dimension_id
+      `;
+    }
+
+    return rows.map(coercePageSentiment);
   }
 }
 
