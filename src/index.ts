@@ -1,37 +1,46 @@
+#!/usr/bin/env node
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import path from 'path';
+import os from 'os';
+
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 dotenv.config({ path: path.join(PROJECT_ROOT, '.env') });
-// Resolve relative path env vars to absolute paths using project root
+
+// Resolve relative path env vars to absolute paths using process.cwd()
 for (const key of ['DATABASE_PATH', 'CREDENTIALS_PATH']) {
   const val = process.env[key];
-  if (val && !path.isAbsolute(val)) process.env[key] = path.resolve(PROJECT_ROOT, val);
+  if (val && !path.isAbsolute(val)) process.env[key] = path.resolve(process.cwd(), val);
 }
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import { z } from 'zod';
-import path from 'path';
 import fs from 'fs';
 
-import { getDatabase } from './database.js';
+import { getAdapter, getInProgressBatchJobs, getAllBooks, getBookByName, getPages } from './database.js';
 import { listBooks } from './tools/list-books.js';
 import { transcribeBooks } from './tools/transcribe-books.js';
 import { getTranscription } from './tools/get-transcription.js';
 import { updatePage } from './tools/update-page.js';
 import { tagPage } from './tools/tag-page.js';
 import { checkAndProcessBatch } from './ocr.js';
-import { getAllBooks, getBookByName, getPages } from './database.js';
 
 // ---------------------------------------------------------------------------
-// Startup: ensure required directories exist and DB is initialised
+// Startup: ensure required directories exist
 // ---------------------------------------------------------------------------
 
 function ensureDirectories(): void {
-  const dirs = [
-    path.resolve(PROJECT_ROOT, process.env.CREDENTIALS_PATH ?? './credentials'),
-    path.resolve(PROJECT_ROOT, path.dirname(process.env.DATABASE_PATH ?? './data/books.db')),
-  ];
+  const credentialsPath = process.env.CREDENTIALS_PATH ?? path.join(os.homedir(), '.ocr-mcp', 'credentials');
+  const dirs: string[] = [credentialsPath];
+
+  // Only create SQLite data directory when not using Postgres
+  if (!process.env.DB_HOST && !process.env.DATABASE_URL) {
+    const dbPath = process.env.DATABASE_PATH ?? path.join(os.homedir(), '.ocr-mcp', 'books.db');
+    dirs.push(path.dirname(dbPath));
+  }
+
   for (const dir of dirs) {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -40,15 +49,22 @@ function ensureDirectories(): void {
   }
 }
 
-ensureDirectories();
+// ---------------------------------------------------------------------------
+// Resume any in-progress batch jobs from a previous session
+// ---------------------------------------------------------------------------
 
-// Initialise the database (creates tables if not present)
-try {
-  getDatabase();
-  process.stderr.write('[OCR MCP] Database initialised.\n');
-} catch (err) {
-  process.stderr.write(`[OCR MCP] Failed to initialise database: ${err}\n`);
-  process.exit(1);
+async function resumeInProgressBatches(): Promise<void> {
+  const jobs = await getInProgressBatchJobs();
+  if (jobs.length === 0) return;
+  process.stderr.write(`[OCR MCP] Resuming ${jobs.length} in-progress batch job(s)...\n`);
+  for (const job of jobs) {
+    try {
+      const { summary } = await checkAndProcessBatch(job.batch_id);
+      process.stderr.write(`[OCR MCP] Batch ${job.batch_id}: ${summary}\n`);
+    } catch (err) {
+      process.stderr.write(`[OCR MCP] Error resuming batch ${job.batch_id}: ${err}\n`);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +138,7 @@ server.tool(
   },
   async ({ batch_id }) => {
     try {
-      const { status, processedCount, summary } = await checkAndProcessBatch(batch_id);
+      const { summary } = await checkAndProcessBatch(batch_id);
       return { content: [{ type: 'text', text: summary }] };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -158,10 +174,10 @@ server.tool(
   },
   async ({ book_name, page_start, page_end, include_illustrations }) => {
     try {
-      const result = getTranscription({ book_name, page_start, page_end, include_illustrations });
+      const result = await getTranscription({ book_name, page_start, page_end, include_illustrations });
       // Include structured page data for the MCP App UI
-      const book = getBookByName(book_name);
-      const pages = book ? getPages(book.id, page_start, page_end) : [];
+      const book = await getBookByName(book_name);
+      const pages = book ? await getPages(book.id, page_start, page_end) : [];
       return {
         content: [{ type: 'text', text: result }],
         structuredContent: { pages },
@@ -185,7 +201,7 @@ server.tool(
   },
   async ({ book_name, page_number, transcription }) => {
     try {
-      const result = updatePage({ book_name, page_number, transcription });
+      const result = await updatePage({ book_name, page_number, transcription });
       return { content: [{ type: 'text', text: result }] };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -208,7 +224,7 @@ server.tool(
   },
   async ({ book_name, page_number, tags }) => {
     try {
-      const result = tagPage({ book_name, page_number, tags });
+      const result = await tagPage({ book_name, page_number, tags });
       return {
         content: [{ type: 'text', text: result.text }],
         structuredContent: { tags: result.tags },
@@ -234,7 +250,7 @@ registerAppTool(
     _meta: { ui: { resourceUri: VIEWER_RESOURCE_URI } },
   },
   async () => {
-    const books = getAllBooks();
+    const books = await getAllBooks();
     return {
       content: [{ type: 'text', text: `Library: ${books.length} book(s) available.` }],
       structuredContent: { books },
@@ -261,9 +277,25 @@ registerAppResource(
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
+  ensureDirectories();
+
+  // Initialize the adapter (creates tables / runs migrations)
+  try {
+    await getAdapter();
+    process.stderr.write('[OCR MCP] Database initialised.\n');
+  } catch (err) {
+    process.stderr.write(`[OCR MCP] Failed to initialise database: ${err}\n`);
+    process.exit(1);
+  }
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   process.stderr.write('[OCR MCP] Server running on stdio transport.\n');
+
+  // Fire-and-forget: resume any batches that were in-progress when server last stopped
+  resumeInProgressBatches().catch((err) =>
+    process.stderr.write(`[OCR MCP] Error resuming in-progress batches: ${err}\n`)
+  );
 }
 
 main().catch((err) => {

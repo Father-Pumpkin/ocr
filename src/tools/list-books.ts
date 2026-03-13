@@ -15,7 +15,7 @@ export async function listBooks(): Promise<string> {
     return 'No PDF files found in the configured Google Drive folder.';
   }
 
-  const dbBooks = getAllBooks();
+  const dbBooks = await getAllBooks();
   const dbByDriveId = new Map<string, BookRow>(
     dbBooks.map((b) => [b.drive_file_id, b])
   );

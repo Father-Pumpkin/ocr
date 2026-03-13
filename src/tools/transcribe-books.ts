@@ -2,7 +2,7 @@ import { listPdfsInFolder, downloadPdf, type DriveFile } from '../google-drive.j
 import {
   upsertBook,
   updateBookStatus,
-  hasExistingTranscription,
+  createBatchJob,
 } from '../database.js';
 import {
   transcribeBookPdf,
@@ -79,7 +79,7 @@ export async function transcribeBooks(args: TranscribeBooksArgs): Promise<string
       process.stderr.write(`[OCR MCP] Processing "${title}"...\n`);
 
       try {
-        const book = upsertBook(file.id, file.name, title);
+        const book = await upsertBook(file.id, file.name, title);
 
         process.stderr.write(`[OCR MCP] Downloading PDF from Drive...\n`);
         const pdfBuffer = await downloadPdf(file.id);
@@ -114,9 +114,9 @@ export async function transcribeBooks(args: TranscribeBooksArgs): Promise<string
     const title = file.name.replace(/\.pdf$/i, '');
 
     try {
-      const book = upsertBook(file.id, file.name, title);
+      const book = await upsertBook(file.id, file.name, title);
       bookIds.push(book.id);
-      updateBookStatus(book.id, 'transcribing');
+      await updateBookStatus(book.id, 'transcribing');
 
       process.stderr.write(`[OCR MCP] Downloading "${title}"...\n`);
       const pdfBuffer = await downloadPdf(file.id);
@@ -135,8 +135,7 @@ export async function transcribeBooks(args: TranscribeBooksArgs): Promise<string
 
   try {
     const batchId = await createOcrBatch(batchRequests);
-    const { createBatchJob } = await import('../database.js');
-    createBatchJob(batchId, bookIds);
+    await createBatchJob(batchId, bookIds);
 
     return (
       `Batch created successfully!\n` +
