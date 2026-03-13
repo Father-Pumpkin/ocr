@@ -28,7 +28,17 @@ const books = sqlite.prepare('SELECT * FROM books ORDER BY id').all() as any[];
 const pages = sqlite.prepare('SELECT * FROM pages ORDER BY id').all() as any[];
 const batchJobs = sqlite.prepare('SELECT * FROM batch_jobs ORDER BY id').all() as any[];
 
-console.log(`Found: ${books.length} books, ${pages.length} pages, ${batchJobs.length} batch jobs`);
+// dimensions and page_sentiment may not exist in older DBs
+let dimensions: any[] = [];
+let pageSentiments: any[] = [];
+try {
+  dimensions = sqlite.prepare('SELECT * FROM dimensions ORDER BY id').all() as any[];
+  pageSentiments = sqlite.prepare('SELECT * FROM page_sentiment ORDER BY id').all() as any[];
+} catch {
+  // Tables don't exist in this SQLite DB yet — skip gracefully
+}
+
+console.log(`Found: ${books.length} books, ${pages.length} pages, ${batchJobs.length} batch jobs, ${dimensions.length} dimensions, ${pageSentiments.length} page sentiment rows`);
 
 if (books.length === 0) {
   console.log('Nothing to migrate.');
@@ -79,6 +89,31 @@ await sql`
     created_by   TEXT,
     created_at   TIMESTAMPTZ DEFAULT NOW(),
     completed_at TIMESTAMPTZ
+  )
+`;
+await sql`
+  CREATE TABLE IF NOT EXISTS dimensions (
+    id          SERIAL PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    min_label   TEXT NOT NULL DEFAULT 'Low',
+    max_label   TEXT NOT NULL DEFAULT 'High',
+    created_by  TEXT,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+  )
+`;
+await sql`
+  CREATE TABLE IF NOT EXISTS page_sentiment (
+    id           SERIAL PRIMARY KEY,
+    page_id      INTEGER NOT NULL REFERENCES pages(id),
+    dimension_id INTEGER NOT NULL REFERENCES dimensions(id) ON DELETE CASCADE,
+    score        FLOAT NOT NULL CHECK (score >= 0.0 AND score <= 1.0),
+    rationale    TEXT,
+    model        TEXT,
+    created_by   TEXT,
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(page_id, dimension_id)
   )
 `;
 console.log('Schema ready.');
@@ -162,6 +197,62 @@ if (batchJobs.length > 0) {
   }
   await sql`SELECT setval('batch_jobs_id_seq', (SELECT MAX(id) FROM batch_jobs))`;
   console.log(' done');
+}
+
+// ---- Migrate dimensions ----
+
+if (dimensions.length > 0) {
+  console.log('\nMigrating dimensions...');
+  for (const dim of dimensions) {
+    await sql`
+      INSERT INTO dimensions (id, name, description, min_label, max_label, created_by, created_at, updated_at)
+      OVERRIDING SYSTEM VALUE
+      VALUES (
+        ${dim.id},
+        ${dim.name},
+        ${dim.description},
+        ${dim.min_label},
+        ${dim.max_label},
+        ${dim.created_by ?? null},
+        ${dim.created_at},
+        ${dim.updated_at}
+      )
+      ON CONFLICT (id) DO NOTHING
+    `;
+    process.stdout.write(`.`);
+  }
+  await sql`SELECT setval('dimensions_id_seq', (SELECT MAX(id) FROM dimensions))`;
+  console.log(' done');
+} else {
+  console.log('\nNo dimensions to migrate — skipping.');
+}
+
+// ---- Migrate page_sentiment ----
+
+if (pageSentiments.length > 0) {
+  console.log('\nMigrating page sentiment rows...');
+  for (const ps of pageSentiments) {
+    await sql`
+      INSERT INTO page_sentiment (id, page_id, dimension_id, score, rationale, model, created_by, created_at)
+      OVERRIDING SYSTEM VALUE
+      VALUES (
+        ${ps.id},
+        ${ps.page_id},
+        ${ps.dimension_id},
+        ${ps.score},
+        ${ps.rationale ?? null},
+        ${ps.model ?? null},
+        ${ps.created_by ?? null},
+        ${ps.created_at}
+      )
+      ON CONFLICT (id) DO NOTHING
+    `;
+    process.stdout.write(`.`);
+  }
+  await sql`SELECT setval('page_sentiment_id_seq', (SELECT MAX(id) FROM page_sentiment))`;
+  console.log(' done');
+} else {
+  console.log('\nNo page sentiment rows to migrate — skipping.');
 }
 
 sqlite.close();

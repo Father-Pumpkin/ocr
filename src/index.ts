@@ -19,7 +19,7 @@ import { registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from '@model
 import { z } from 'zod';
 import fs from 'fs';
 
-import { getAdapter, getInProgressBatchJobs, getAllBooks, getBookByName, getPages } from './database.js';
+import { getAdapter, getInProgressBatchJobs, getAllBooks, getBookByName, getPages, getAllDimensions, getDimensionByName, createDimension, updateDimension, deleteDimension } from './database.js';
 import { listPdfsInFolder } from './google-drive.js';
 import { listBooks } from './tools/list-books.js';
 import { transcribeBooks } from './tools/transcribe-books.js';
@@ -229,6 +229,150 @@ server.tool(
       return {
         content: [{ type: 'text', text: result.text }],
         structuredContent: { tags: result.tags },
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+);
+
+// ---- Tool: list_dimensions --------------------------------------------------
+
+server.tool(
+  'list_dimensions',
+  'Lists all researcher-defined sentiment dimensions available for analysis.',
+  {},
+  async () => {
+    try {
+      const dimensions = await getAllDimensions();
+      if (dimensions.length === 0) {
+        return {
+          content: [{
+            type: 'text',
+            text: 'No dimensions defined yet. Use create_dimension to add one.',
+          }],
+        };
+      }
+      const header = 'Name                 | Description                                      | Min Label  | Max Label\n' +
+                     '---------------------|--------------------------------------------------|------------|----------';
+      const rows = dimensions.map((d) => {
+        const name = d.name.padEnd(20);
+        const desc = d.description.length > 48 ? d.description.slice(0, 45) + '...' : d.description.padEnd(48);
+        const min = d.min_label.padEnd(10);
+        const max = d.max_label;
+        return `${name} | ${desc} | ${min} | ${max}`;
+      });
+      return {
+        content: [{ type: 'text', text: [header, ...rows].join('\n') }],
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+);
+
+// ---- Tool: create_dimension -------------------------------------------------
+
+server.tool(
+  'create_dimension',
+  'Creates a new sentiment dimension for analysis. The description is used to prompt Claude when scoring pages, so be precise about what to look for.',
+  {
+    name: z.string().describe('Short identifier, e.g. "affirmativeness". Used as the dimension key.'),
+    description: z.string().describe('What Claude should look for when scoring this dimension. Be specific about what constitutes a high vs low score.'),
+    min_label: z.string().optional().default('Low').describe('Label for the low end of the scale (0.0).'),
+    max_label: z.string().optional().default('High').describe('Label for the high end of the scale (1.0).'),
+  },
+  async ({ name, description, min_label, max_label }) => {
+    try {
+      const dimension = await createDimension(name, description, min_label, max_label);
+      return {
+        content: [{
+          type: 'text',
+          text: `Created dimension "${dimension.name}" (id: ${dimension.id})\n` +
+                `Description: ${dimension.description}\n` +
+                `Scale: ${dimension.min_label} (0.0) → ${dimension.max_label} (1.0)`,
+        }],
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+);
+
+// ---- Tool: update_dimension -------------------------------------------------
+
+server.tool(
+  'update_dimension',
+  'Updates an existing sentiment dimension. Useful for refining descriptions as research questions evolve. Existing scores are preserved but may no longer reflect the updated description.',
+  {
+    name: z.string().describe('The dimension name to update.'),
+    description: z.string().optional().describe('New description for the dimension.'),
+    min_label: z.string().optional().describe('New label for the low end (0.0).'),
+    max_label: z.string().optional().describe('New label for the high end (1.0).'),
+  },
+  async ({ name, description, min_label, max_label }) => {
+    try {
+      const existing = await getDimensionByName(name);
+      if (!existing) {
+        return {
+          content: [{ type: 'text', text: `Error: Dimension "${name}" not found.` }],
+          isError: true,
+        };
+      }
+      const updated = await updateDimension(existing.id, { description, minLabel: min_label, maxLabel: max_label });
+      if (!updated) {
+        return {
+          content: [{ type: 'text', text: `Error: Dimension "${name}" could not be updated.` }],
+          isError: true,
+        };
+      }
+      return {
+        content: [{
+          type: 'text',
+          text: `Updated dimension "${updated.name}" (id: ${updated.id})\n` +
+                `Description: ${updated.description}\n` +
+                `Scale: ${updated.min_label} (0.0) → ${updated.max_label} (1.0)`,
+        }],
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+);
+
+// ---- Tool: delete_dimension -------------------------------------------------
+
+server.tool(
+  'delete_dimension',
+  'Deletes a sentiment dimension and all associated scores. This cannot be undone.',
+  {
+    name: z.string().describe('The dimension name to delete.'),
+  },
+  async ({ name }) => {
+    try {
+      const existing = await getDimensionByName(name);
+      if (!existing) {
+        return {
+          content: [{ type: 'text', text: `Error: Dimension "${name}" not found.` }],
+          isError: true,
+        };
+      }
+      const deleted = await deleteDimension(existing.id);
+      if (!deleted) {
+        return {
+          content: [{ type: 'text', text: `Error: Dimension "${name}" could not be deleted.` }],
+          isError: true,
+        };
+      }
+      return {
+        content: [{
+          type: 'text',
+          text: `Deleted dimension "${name}" (id: ${existing.id}) and all associated page sentiment scores.`,
+        }],
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -35,6 +35,28 @@ export interface BatchJobRow {
   completed_at: string | null;
 }
 
+export interface DimensionRow {
+  id: number;
+  name: string;
+  description: string;
+  min_label: string;
+  max_label: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PageSentimentRow {
+  id: number;
+  page_id: number;
+  dimension_id: number;
+  score: number; // 0.0 to 1.0
+  rationale: string | null;
+  model: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 export interface DatabaseAdapter {
   // Books
   upsertBook(driveFileId: string, driveFileName: string, title: string): Promise<BookRow>;
@@ -56,4 +78,16 @@ export interface DatabaseAdapter {
   getBatchJob(batchId: string): Promise<BatchJobRow | undefined>;
   updateBatchJobStatus(batchId: string, status: string): Promise<void>;
   getInProgressBatchJobs(): Promise<BatchJobRow[]>;
+
+  // Dimensions
+  createDimension(name: string, description: string, minLabel: string, maxLabel: string): Promise<DimensionRow>;
+  getDimensionByName(name: string): Promise<DimensionRow | undefined>;
+  getAllDimensions(): Promise<DimensionRow[]>;
+  updateDimension(id: number, fields: { description?: string; minLabel?: string; maxLabel?: string }): Promise<DimensionRow | undefined>;
+  deleteDimension(id: number): Promise<boolean>;
+
+  // Page sentiment
+  upsertPageSentiment(pageId: number, dimensionId: number, score: number, rationale: string | null, model: string | null): Promise<PageSentimentRow>;
+  getPageSentiment(pageId: number): Promise<PageSentimentRow[]>;
+  getBookSentiment(bookId: number, dimensionIds?: number[], pageStart?: number, pageEnd?: number): Promise<PageSentimentRow[]>;
 }
