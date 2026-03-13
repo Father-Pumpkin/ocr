@@ -65,7 +65,7 @@ export async function transcribeBookPdf(
 ): Promise<{ transcribed: number; skipped: number; pageCount: number }> {
   const client = getAnthropicClient();
 
-  updateBookStatus(bookId, 'transcribing');
+  await updateBookStatus(bookId, 'transcribing');
 
   const pdfBase64 = pdfBuffer.toString('base64');
 
@@ -102,19 +102,19 @@ export async function transcribeBookPdf(
   let skipped = 0;
 
   for (const { pageNumber, transcription } of pages) {
-    if (!overwrite && hasExistingTranscription(bookId, pageNumber)) {
+    if (!overwrite && await hasExistingTranscription(bookId, pageNumber)) {
       process.stderr.write(
         `[OCR MCP] Skipping ${bookTitle} page ${pageNumber} (already transcribed)\n`
       );
       skipped++;
       continue;
     }
-    upsertPage(bookId, pageNumber, transcription);
+    await upsertPage(bookId, pageNumber, transcription);
     process.stderr.write(`[OCR MCP] Stored ${bookTitle} page ${pageNumber}\n`);
     transcribed++;
   }
 
-  updateBookStatus(bookId, 'complete', pages.length);
+  await updateBookStatus(bookId, 'complete', pages.length);
 
   return { transcribed, skipped, pageCount: pages.length };
 }
@@ -175,7 +175,7 @@ export async function checkAndProcessBatch(batchId: string): Promise<{
 }> {
   const client = getAnthropicClient();
 
-  const batchJob = getBatchJob(batchId);
+  const batchJob = await getBatchJob(batchId);
   if (!batchJob) {
     throw new Error(`No batch job found with ID: ${batchId}`);
   }
@@ -211,10 +211,10 @@ export async function checkAndProcessBatch(batchId: string): Promise<{
         const bookId = parseInt(match[1], 10);
         const pages = parsePdfTranscription(text);
         for (const { pageNumber, transcription } of pages) {
-          upsertPage(bookId, pageNumber, transcription, customId);
+          await upsertPage(bookId, pageNumber, transcription, customId);
           processedCount++;
         }
-        updateBookStatus(bookId, 'complete', pages.length);
+        await updateBookStatus(bookId, 'complete', pages.length);
       } else {
         errors.push(`Could not parse custom_id: ${customId}`);
       }
@@ -227,10 +227,10 @@ export async function checkAndProcessBatch(batchId: string): Promise<{
 
   const bookIds: number[] = JSON.parse(batchJob.book_ids);
   for (const bookId of bookIds) {
-    updateBookStatus(bookId, 'complete');
+    await updateBookStatus(bookId, 'complete');
   }
 
-  updateBatchJobStatus(batchId, 'complete');
+  await updateBatchJobStatus(batchId, 'complete');
 
   const errorSummary = errors.length > 0 ? `\nErrors:\n${errors.join('\n')}` : '';
 

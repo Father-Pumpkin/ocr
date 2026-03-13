@@ -4,10 +4,18 @@
   "description": "MCP server for OCR transcription of Spanish children's books from Google Drive",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "ocr-mcp-server": "dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "ui/dist/"
+  ],
   "scripts": {
     "build": "tsc",
     "build:ui": "vite build",
     "build:all": "npm run build:ui && npm run build",
+    "prepublishOnly": "npm run build:all",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts"
   },
@@ -19,7 +27,8 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "googleapis": "^144.0.0",
-    "open": "^10.1.0"
+    "open": "^10.1.0",
+    "postgres": "^3.4.8"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

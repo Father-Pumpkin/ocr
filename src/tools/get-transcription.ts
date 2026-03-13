@@ -1,4 +1,4 @@
-import { getBookByName, getPages, type PageRow } from '../database.js';
+import { getBookByName, getPages } from '../database.js';
 
 interface GetTranscriptionArgs {
   book_name: string;
@@ -7,7 +7,7 @@ interface GetTranscriptionArgs {
   include_illustrations?: boolean;
 }
 
-export function getTranscription(args: GetTranscriptionArgs): string {
+export async function getTranscription(args: GetTranscriptionArgs): Promise<string> {
   const {
     book_name,
     page_start,
@@ -15,7 +15,7 @@ export function getTranscription(args: GetTranscriptionArgs): string {
     include_illustrations = false,
   } = args;
 
-  const book = getBookByName(book_name);
+  const book = await getBookByName(book_name);
   if (!book) {
     return (
       `Book not found: "${book_name}"\n` +
@@ -23,7 +23,7 @@ export function getTranscription(args: GetTranscriptionArgs): string {
     );
   }
 
-  const pages = getPages(book.id, page_start, page_end);
+  const pages = await getPages(book.id, page_start, page_end);
 
   if (pages.length === 0) {
     const rangeText =
