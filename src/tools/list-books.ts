@@ -1,4 +1,4 @@
-import { listPdfsInFolder, type DriveFile } from '../google-drive.js';
+import { listPdfsInFolder, AuthRequiredError, type DriveFile } from '../google-drive.js';
 import { getAllBooks, getBookByDriveId, type BookRow } from '../database.js';
 
 export async function listBooks(): Promise<string> {
@@ -7,8 +7,8 @@ export async function listBooks(): Promise<string> {
   try {
     driveFiles = await listPdfsInFolder();
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return `Error connecting to Google Drive: ${message}`;
+    // Return as plain text so Claude relays the message verbatim rather than interpreting it
+    return err instanceof Error ? err.message : String(err);
   }
 
   if (driveFiles.length === 0) {

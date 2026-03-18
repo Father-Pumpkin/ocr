@@ -20,9 +20,10 @@ import { z } from 'zod';
 import fs from 'fs';
 
 import { getAdapter, getInProgressBatchJobs, getAllBooks, getBookByName, getPages, getAllDimensions, getDimensionByName, createDimension, updateDimension, deleteDimension } from './database.js';
-import { listPdfsInFolder } from './google-drive.js';
+import { listPdfsInFolder, clearAuth } from './google-drive.js';
 import { listBooks } from './tools/list-books.js';
 import { transcribeBooks } from './tools/transcribe-books.js';
+import { batchTranscribe } from './tools/batch-transcribe.js';
 import { getTranscription } from './tools/get-transcription.js';
 import { updatePage } from './tools/update-page.js';
 import { tagPage } from './tools/tag-page.js';
@@ -121,6 +122,40 @@ server.tool(
   async ({ book_names, use_batch, overwrite }) => {
     try {
       const result = await transcribeBooks({ book_names, use_batch, overwrite });
+      return { content: [{ type: 'text', text: result }] };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+);
+
+// ---- Tool: batch_transcribe -------------------------------------------------
+
+server.tool(
+  'batch_transcribe',
+  'Submits books to the Anthropic Batch API for async transcription (50% cheaper, ~1hr turnaround). ' +
+  'Defaults to all unprocessed books if no list is given. Always call with dry_run: true first to ' +
+  'show the user what would be submitted and get confirmation before actually running.',
+  {
+    book_names: z
+      .array(z.string())
+      .default([])
+      .describe('Books to transcribe. Pass an empty array to auto-select all eligible books.'),
+    overwrite: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe('If true, resubmit books that are already complete.'),
+    dry_run: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe('Preview what would be submitted without downloading or submitting anything. Use this first to confirm with the user.'),
+  },
+  async ({ book_names, overwrite, dry_run }) => {
+    try {
+      const result = await batchTranscribe({ book_names, overwrite, dry_run });
       return { content: [{ type: 'text', text: result }] };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -372,6 +407,28 @@ server.tool(
         content: [{
           type: 'text',
           text: `Deleted dimension "${name}" (id: ${existing.id}) and all associated page sentiment scores.`,
+        }],
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+);
+
+// ---- Tool: clear_auth -------------------------------------------------------
+
+server.tool(
+  'clear_auth',
+  'Clears the stored Google credentials and any pending device flow, so the next Drive operation will start a fresh authorization. Use this if you authorized with the wrong Google account or if Drive access is failing.',
+  {},
+  async () => {
+    try {
+      clearAuth();
+      return {
+        content: [{
+          type: 'text',
+          text: 'Google auth cleared. The next Drive operation will open a new browser window for authorization.',
         }],
       };
     } catch (err) {

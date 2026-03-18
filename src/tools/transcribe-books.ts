@@ -1,4 +1,4 @@
-import { listPdfsInFolder, downloadPdf, type DriveFile } from '../google-drive.js';
+import { listPdfsInFolder, downloadPdf, AuthRequiredError, type DriveFile } from '../google-drive.js';
 import {
   upsertBook,
   updateBookStatus,
@@ -24,8 +24,7 @@ export async function transcribeBooks(args: TranscribeBooksArgs): Promise<string
   try {
     driveFiles = await listPdfsInFolder();
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return `Error connecting to Google Drive: ${message}`;
+    return err instanceof Error ? err.message : String(err);
   }
 
   if (driveFiles.length === 0) {

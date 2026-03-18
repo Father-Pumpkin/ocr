@@ -508,10 +508,16 @@ export class PostgresAdapter implements DatabaseAdapter {
 export async function createPostgresAdapter(): Promise<PostgresAdapter> {
   let sql: postgres.Sql;
 
+  const sharedOptions: postgres.Options<Record<string, postgres.PostgresType>> = {
+    // Redirect Postgres notices to stderr — default is console.log which corrupts MCP stdio
+    onnotice: (notice) => process.stderr.write(`[OCR MCP] Postgres: ${notice.message}\n`),
+  };
+
   if (process.env.DATABASE_URL) {
-    sql = postgres(process.env.DATABASE_URL);
+    sql = postgres(process.env.DATABASE_URL, sharedOptions);
   } else {
     sql = postgres({
+      ...sharedOptions,
       host: process.env.DB_HOST ?? 'localhost',
       port: parseInt(process.env.DB_PORT ?? '5432', 10),
       user: process.env.DB_USER,

@@ -8,54 +8,95 @@ import http from 'http';
 
 const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
 
-function getTokenPath(): string {
+/**
+ * Thrown when Google Drive access requires (re-)authorization.
+ * Tools should catch this and return the message as a normal (non-error)
+ * response so Claude relays the instructions to the user verbatim.
+ */
+export class AuthRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthRequiredError';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Credential paths
+// ---------------------------------------------------------------------------
+
+function getCredDir(): string {
   const credDir = path.resolve(
     process.cwd(),
     process.env.CREDENTIALS_PATH ?? './credentials'
   );
-  if (!fs.existsSync(credDir)) {
-    fs.mkdirSync(credDir, { recursive: true });
-  }
-  return path.join(credDir, 'oauth-token.json');
+  if (!fs.existsSync(credDir)) fs.mkdirSync(credDir, { recursive: true });
+  return credDir;
+}
+
+function getTokenPath(): string {
+  return path.join(getCredDir(), 'oauth-token.json');
+}
+
+// ---------------------------------------------------------------------------
+// OAuth2 client
+// ---------------------------------------------------------------------------
+
+function getRedirectUri(): string {
+  return process.env.GOOGLE_REDIRECT_URI ?? 'http://localhost:3000/oauth/callback';
 }
 
 function createOAuth2Client(): OAuth2Client {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI ?? 'http://localhost:3000/oauth/callback';
 
   if (!clientId || !clientSecret) {
-    throw new Error(
-      'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in your .env file.'
-    );
+    throw new Error('GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in your .env file.');
   }
 
-  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  return new google.auth.OAuth2(clientId, clientSecret, getRedirectUri());
 }
 
+// ---------------------------------------------------------------------------
+// Local OAuth callback server
+// ---------------------------------------------------------------------------
+
+const OAUTH_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+
 async function runLocalOAuthServer(oAuth2Client: OAuth2Client): Promise<void> {
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI ?? 'http://localhost:3000/oauth/callback';
-  const url = new URL(redirectUri);
+  const url = new URL(getRedirectUri());
   const port = parseInt(url.port || '3000', 10);
 
   return new Promise((resolve, reject) => {
     const app = express();
     let server: http.Server;
+    let settled = false;
+
+    function finish(err?: Error) {
+      if (settled) return;
+      settled = true;
+      server.close();
+      if (err) reject(err);
+      else resolve();
+    }
+
+    const timeout = setTimeout(() => {
+      finish(new Error(
+        'Google OAuth timed out after 3 minutes. Use the clear_auth tool to reset and try again.'
+      ));
+    }, OAUTH_TIMEOUT_MS);
 
     app.get('/oauth/callback', async (req, res) => {
       const code = req.query.code as string | undefined;
       if (!code) {
         res.status(400).send('No authorization code received.');
-        server.close();
-        reject(new Error('No authorization code received from Google.'));
+        clearTimeout(timeout);
+        finish(new Error('No authorization code received from Google.'));
         return;
       }
 
       try {
         const { tokens } = await oAuth2Client.getToken(code);
         oAuth2Client.setCredentials(tokens);
-
-        // Persist token
         fs.writeFileSync(getTokenPath(), JSON.stringify(tokens, null, 2));
 
         res.send(`
@@ -64,12 +105,12 @@ async function runLocalOAuthServer(oAuth2Client: OAuth2Client): Promise<void> {
             <p>You can close this window and return to Claude Desktop.</p>
           </body></html>
         `);
-        server.close();
-        resolve();
+        clearTimeout(timeout);
+        finish();
       } catch (err) {
         res.status(500).send('Failed to exchange authorization code.');
-        server.close();
-        reject(err);
+        clearTimeout(timeout);
+        finish(err instanceof Error ? err : new Error(String(err)));
       }
     });
 
@@ -77,24 +118,39 @@ async function runLocalOAuthServer(oAuth2Client: OAuth2Client): Promise<void> {
       const authUrl = oAuth2Client.generateAuthUrl({
         access_type: 'offline',
         scope: SCOPES,
-        prompt: 'consent',
+        prompt: 'select_account', // always show account picker
       });
 
-      process.stderr.write(`\n[OCR MCP] Opening browser for Google OAuth authorization...\n`);
-      process.stderr.write(`[OCR MCP] If your browser does not open, visit:\n  ${authUrl}\n\n`);
+      process.stderr.write(`\n[OCR MCP] Opening browser for Google OAuth...\n`);
+      process.stderr.write(`[OCR MCP] If browser doesn't open, visit:\n  ${authUrl}\n\n`);
 
       open(authUrl).catch(() => {
-        process.stderr.write(`[OCR MCP] Could not open browser automatically. Please visit the URL above.\n`);
+        process.stderr.write(`[OCR MCP] Could not open browser automatically.\n`);
       });
     });
 
     server.on('error', (err) => {
-      reject(new Error(`Failed to start OAuth callback server: ${err.message}`));
+      clearTimeout(timeout);
+      finish(new Error(`Failed to start OAuth callback server on port ${port}: ${err.message}`));
     });
   });
 }
 
+// ---------------------------------------------------------------------------
+// Public auth interface
+// ---------------------------------------------------------------------------
+
 let authenticatedClient: OAuth2Client | null = null;
+
+/**
+ * Clears the stored OAuth token and resets the in-memory client, forcing
+ * re-authentication on the next Drive call. Use the clear_auth MCP tool.
+ */
+export function clearAuth(): void {
+  authenticatedClient = null;
+  const tokenPath = getTokenPath();
+  if (fs.existsSync(tokenPath)) fs.unlinkSync(tokenPath);
+}
 
 export async function authenticate(): Promise<OAuth2Client> {
   if (authenticatedClient) return authenticatedClient;
@@ -104,11 +160,9 @@ export async function authenticate(): Promise<OAuth2Client> {
 
   if (fs.existsSync(tokenPath)) {
     try {
-      const raw = fs.readFileSync(tokenPath, 'utf-8');
-      const tokens = JSON.parse(raw);
+      const tokens = JSON.parse(fs.readFileSync(tokenPath, 'utf-8'));
       oAuth2Client.setCredentials(tokens);
 
-      // Refresh if the access token is expired or close to expiry
       if (tokens.expiry_date && tokens.expiry_date < Date.now() + 60_000) {
         process.stderr.write('[OCR MCP] Refreshing expired Google OAuth token...\n');
         const { credentials } = await oAuth2Client.refreshAccessToken();
@@ -120,14 +174,28 @@ export async function authenticate(): Promise<OAuth2Client> {
       return authenticatedClient;
     } catch (err) {
       process.stderr.write(`[OCR MCP] Stored token invalid, re-authenticating: ${err}\n`);
+      fs.unlinkSync(tokenPath);
     }
   }
 
-  // First-time (or invalid token) — run the OAuth flow
-  await runLocalOAuthServer(oAuth2Client);
+  // No valid token — run the browser OAuth flow
+  try {
+    await runLocalOAuthServer(oAuth2Client);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new AuthRequiredError(
+      `Google authorization failed or timed out: ${message}\n\n` +
+      `Run the clear_auth tool and try again to start a fresh login.`
+    );
+  }
+
   authenticatedClient = oAuth2Client;
   return authenticatedClient;
 }
+
+// ---------------------------------------------------------------------------
+// Drive operations
+// ---------------------------------------------------------------------------
 
 export interface DriveFile {
   id: string;
@@ -175,14 +243,24 @@ export async function listPdfsInFolder(): Promise<DriveFile[]> {
   return files.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+const DOWNLOAD_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes per file
+
 export async function downloadPdf(fileId: string): Promise<Buffer> {
   const auth = await authenticate();
   const drive = google.drive({ version: 'v3', auth });
 
-  const response = await drive.files.get(
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error(`Download timed out after 2 minutes (file: ${fileId})`)),
+      DOWNLOAD_TIMEOUT_MS
+    )
+  );
+
+  const download = drive.files.get(
     { fileId, alt: 'media', supportsAllDrives: true },
     { responseType: 'arraybuffer' }
   );
 
+  const response = await Promise.race([download, timeout]);
   return Buffer.from(response.data as ArrayBuffer);
 }
