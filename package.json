@@ -1,7 +1,7 @@
 {
   "name": "ocr-mcp-server",
   "version": "1.0.0",
-  "description": "MCP server for OCR transcription of Spanish children's books from Google Drive",
+  "description": "MCP server for OCR transcription of books from Google Drive using Claude vision",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -19,6 +19,26 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Father-Pumpkin/ocr.git"
+  },
+  "homepage": "https://github.com/Father-Pumpkin/ocr",
+  "bugs": {
+    "url": "https://github.com/Father-Pumpkin/ocr/issues"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "ocr",
+    "anthropic",
+    "claude",
+    "google-drive",
+    "transcription"
+  ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/ext-apps": "^1.2.0",
