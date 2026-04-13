@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+// Redirect console.log to stderr — MCP stdio transport uses stdout exclusively
+// for JSON, so any library that writes to console.log would break the protocol.
+console.log = (...args: unknown[]) => process.stderr.write(args.map(String).join(' ') + '\n');
+
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import path from 'path';
