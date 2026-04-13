@@ -1,7 +1,11 @@
 import { createCanvas } from '@napi-rs/canvas';
 import * as pdfjs from 'pdfjs-dist';
+import { createRequire } from 'module';
 
-pdfjs.GlobalWorkerOptions.workerSrc = '';
+// pdfjs-dist v4 requires a real workerSrc — resolve the bundled worker file
+const _require = createRequire(import.meta.url);
+const workerPath = _require.resolve('pdfjs-dist/build/pdf.worker.mjs');
+pdfjs.GlobalWorkerOptions.workerSrc = `file:///${workerPath.replace(/\\/g, '/')}`;
 
 export async function renderAllPdfPages(
   pdfBuffer: Buffer,
