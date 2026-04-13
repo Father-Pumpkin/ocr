@@ -58,6 +58,9 @@ interface State {
   loadingPages: boolean;
   editingPage: number | null;
   tagPickerPage: number | null;
+  pageImages: Map<number, string>; // page_number -> base64 JPEG
+  pageImagesLoading: Set<number>;
+  currentBookDriveUrl: string | null;
 }
 
 const state: State = {
@@ -69,6 +72,9 @@ const state: State = {
   loadingPages: false,
   editingPage: null,
   tagPickerPage: null,
+  pageImages: new Map(),
+  pageImagesLoading: new Set(),
+  currentBookDriveUrl: null,
 };
 
 // ── App instance ───────────────────────────────────────────────────────────
@@ -257,6 +263,9 @@ async function openBook(book: Book): Promise<void> {
   state.editingPage = null;
   state.tagPickerPage = null;
   state.loadingPages = true;
+  state.pageImages = new Map();
+  state.pageImagesLoading = new Set();
+  state.currentBookDriveUrl = null;
 
   renderBookShell();
 
@@ -273,6 +282,7 @@ async function openBook(book: Book): Promise<void> {
   }
 
   renderBookPages();
+  loadPageImages(); // fire-and-forget
 }
 
 function renderBookShell(): void {
@@ -323,6 +333,36 @@ function renderBookPages(): void {
     list.append(buildPageItem(page));
   }
   main.append(list);
+}
+
+// ── Load page images (background) ──────────────────────────────────────────
+
+async function loadPageImages(): Promise<void> {
+  if (!state.currentBook) return;
+  const pages = state.currentPages;
+  for (const page of pages) {
+    if (!state.currentBook) break; // user navigated away
+    try {
+      state.pageImagesLoading.add(page.page_number);
+      refreshPage(page); // show spinner immediately
+      const result = await mcpApp.callServerTool({
+        name: 'get_page_image',
+        arguments: { book_name: state.currentBook.title, page_number: page.page_number },
+      });
+      const data = result.structuredContent as { imageData?: string; driveUrl?: string } | undefined;
+      if (data?.imageData) {
+        state.pageImages.set(page.page_number, data.imageData);
+        if (!state.currentBookDriveUrl && data.driveUrl) {
+          state.currentBookDriveUrl = data.driveUrl;
+        }
+      }
+    } catch {
+      // ignore per-page errors
+    } finally {
+      state.pageImagesLoading.delete(page.page_number);
+    }
+    refreshPage(page); // re-render with image
+  }
 }
 
 // ── Page item ──────────────────────────────────────────────────────────────
@@ -389,18 +429,59 @@ function buildPageItem(page: Page): HTMLElement {
   head.append(label, actions);
   item.append(head);
 
-  // ── Tags ──────────────────────────────────────────────────────────────────
-  if (page.tags.length > 0 || isTagPicker) {
-    item.append(buildTagsSection(page, isTagPicker));
+  // ── Two-column layout ──────────────────────────────────────────────────────
+  const columns = document.createElement('div');
+  columns.className = 'page-columns';
+
+  // Left: image
+  const imageCol = document.createElement('div');
+  imageCol.className = 'page-image-col';
+
+  const imageData = state.pageImages.get(page.page_number);
+  const isLoadingImg = state.pageImagesLoading.has(page.page_number);
+
+  if (imageData) {
+    const img = document.createElement('img');
+    img.className = 'page-img';
+    img.src = `data:image/jpeg;base64,${imageData}`;
+    img.alt = `Page ${page.page_number}`;
+    imageCol.append(img);
+
+    if (state.currentBookDriveUrl) {
+      const link = document.createElement('a');
+      link.className = 'drive-link';
+      link.href = state.currentBookDriveUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = 'Open in Drive \u2197';
+      imageCol.append(link);
+    }
+  } else if (isLoadingImg) {
+    const imgSpinner = document.createElement('div');
+    imgSpinner.className = 'img-spinner';
+    imageCol.append(imgSpinner);
   } else {
-    item.append(buildTagsSection(page, false));
+    const placeholder = document.createElement('div');
+    placeholder.className = 'img-placeholder';
+    imageCol.append(placeholder);
+  }
+
+  // Right: tags + body
+  const textCol = document.createElement('div');
+  textCol.className = 'page-text-col';
+
+  // Tags
+  if (page.tags.length > 0 || isTagPicker) {
+    textCol.append(buildTagsSection(page, isTagPicker));
+  } else {
+    textCol.append(buildTagsSection(page, false));
   }
 
   if (isTagPicker) {
-    item.append(buildTagPicker(page));
+    textCol.append(buildTagPicker(page));
   }
 
-  // ── Body ──────────────────────────────────────────────────────────────────
+  // Body
   const body = document.createElement('div');
   body.className = 'page-body';
 
@@ -422,7 +503,10 @@ function buildPageItem(page: Page): HTMLElement {
     body.append(txt);
   }
 
-  item.append(body);
+  textCol.append(body);
+
+  columns.append(imageCol, textCol);
+  item.append(columns);
   return item;
 }
 

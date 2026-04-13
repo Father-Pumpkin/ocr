@@ -44,10 +44,12 @@
     "@modelcontextprotocol/ext-apps": "^1.2.0",
     "@modelcontextprotocol/sdk": "^1.10.1",
     "better-sqlite3": "^11.9.1",
+    "@napi-rs/canvas": "^0.1.57",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "googleapis": "^144.0.0",
     "open": "^10.1.0",
+    "pdfjs-dist": "^4.4.168",
     "postgres": "^3.4.8"
   },
   "devDependencies": {

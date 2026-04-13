@@ -90,4 +90,9 @@ export interface DatabaseAdapter {
   upsertPageSentiment(pageId: number, dimensionId: number, score: number, rationale: string | null, model: string | null): Promise<PageSentimentRow>;
   getPageSentiment(pageId: number): Promise<PageSentimentRow[]>;
   getBookSentiment(bookId: number, dimensionIds?: number[], pageStart?: number, pageEnd?: number): Promise<PageSentimentRow[]>;
+
+  // Page images
+  getPageImage(bookId: number, pageNumber: number): Promise<string | null>;
+  cachePageImages(bookId: number, images: Array<{ pageNumber: number; imageData: string }>): Promise<void>;
+  hasAnyPageImage(bookId: number): Promise<boolean>;
 }

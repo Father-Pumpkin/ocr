@@ -180,6 +180,17 @@ export class PostgresAdapter implements DatabaseAdapter {
         UNIQUE(page_id, dimension_id)
       )
     `;
+
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS page_images (
+        id          SERIAL PRIMARY KEY,
+        book_id     INTEGER NOT NULL REFERENCES books(id),
+        page_number INTEGER NOT NULL,
+        image_data  TEXT NOT NULL,
+        created_at  TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(book_id, page_number)
+      )
+    `;
   }
 
   // ---- Book helpers ----
@@ -502,6 +513,33 @@ export class PostgresAdapter implements DatabaseAdapter {
     }
 
     return rows.map(coercePageSentiment);
+  }
+
+  // ---- Page image helpers ----
+
+  async getPageImage(bookId: number, pageNumber: number): Promise<string | null> {
+    const rows = await this.sql<{ image_data: string }[]>`
+      SELECT image_data FROM page_images WHERE book_id = ${bookId} AND page_number = ${pageNumber}
+    `;
+    return rows.length > 0 ? rows[0].image_data : null;
+  }
+
+  async cachePageImages(bookId: number, images: Array<{ pageNumber: number; imageData: string }>): Promise<void> {
+    if (images.length === 0) return;
+    for (const img of images) {
+      await this.sql`
+        INSERT INTO page_images (book_id, page_number, image_data)
+        VALUES (${bookId}, ${img.pageNumber}, ${img.imageData})
+        ON CONFLICT (book_id, page_number) DO UPDATE SET image_data = EXCLUDED.image_data
+      `;
+    }
+  }
+
+  async hasAnyPageImage(bookId: number): Promise<boolean> {
+    const rows = await this.sql<{ exists: boolean }[]>`
+      SELECT EXISTS (SELECT 1 FROM page_images WHERE book_id = ${bookId} LIMIT 1) AS exists
+    `;
+    return rows.length > 0 && rows[0].exists;
   }
 }
 

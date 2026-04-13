@@ -107,6 +107,15 @@ export class SqliteAdapter implements DatabaseAdapter {
         created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(page_id, dimension_id)
       );
+
+      CREATE TABLE IF NOT EXISTS page_images (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        book_id     INTEGER NOT NULL REFERENCES books(id),
+        page_number INTEGER NOT NULL,
+        image_data  TEXT NOT NULL,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(book_id, page_number)
+      );
     `);
   }
 
@@ -410,5 +419,31 @@ export class SqliteAdapter implements DatabaseAdapter {
     return Promise.resolve(
       this.db.prepare(sql).all(...values) as PageSentimentRow[]
     );
+  }
+
+  // ---- Page image helpers ----
+
+  async getPageImage(bookId: number, pageNumber: number): Promise<string | null> {
+    const row = this.db.prepare('SELECT image_data FROM page_images WHERE book_id = ? AND page_number = ?').get(bookId, pageNumber) as { image_data: string } | undefined;
+    return Promise.resolve(row?.image_data ?? null);
+  }
+
+  async cachePageImages(bookId: number, images: Array<{ pageNumber: number; imageData: string }>): Promise<void> {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO page_images (book_id, page_number, image_data)
+      VALUES (?, ?, ?)
+    `);
+    const insert = this.db.transaction((imgs: Array<{ pageNumber: number; imageData: string }>) => {
+      for (const img of imgs) {
+        stmt.run(bookId, img.pageNumber, img.imageData);
+      }
+    });
+    insert(images);
+    return Promise.resolve();
+  }
+
+  async hasAnyPageImage(bookId: number): Promise<boolean> {
+    const row = this.db.prepare('SELECT 1 FROM page_images WHERE book_id = ? LIMIT 1').get(bookId);
+    return Promise.resolve(!!row);
   }
 }

@@ -43,3 +43,6 @@ export async function deleteDimension(id: number) { return (await getAdapter()).
 export async function upsertPageSentiment(pageId: number, dimensionId: number, score: number, rationale: string | null, model: string | null) { return (await getAdapter()).upsertPageSentiment(pageId, dimensionId, score, rationale, model); }
 export async function getPageSentiment(pageId: number) { return (await getAdapter()).getPageSentiment(pageId); }
 export async function getBookSentiment(bookId: number, dimensionIds?: number[], pageStart?: number, pageEnd?: number) { return (await getAdapter()).getBookSentiment(bookId, dimensionIds, pageStart, pageEnd); }
+export async function getPageImage(bookId: number, pageNumber: number) { return (await getAdapter()).getPageImage(bookId, pageNumber); }
+export async function cachePageImages(bookId: number, images: Array<{ pageNumber: number; imageData: string }>) { return (await getAdapter()).cachePageImages(bookId, images); }
+export async function hasAnyPageImage(bookId: number) { return (await getAdapter()).hasAnyPageImage(bookId); }

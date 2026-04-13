@@ -27,6 +27,7 @@ import { batchTranscribe } from './tools/batch-transcribe.js';
 import { getTranscription } from './tools/get-transcription.js';
 import { updatePage } from './tools/update-page.js';
 import { tagPage } from './tools/tag-page.js';
+import { getPageImageTool } from './tools/get-page-image.js';
 import { checkAndProcessBatch } from './ocr.js';
 
 // ---------------------------------------------------------------------------
@@ -408,6 +409,29 @@ server.tool(
           type: 'text',
           text: `Deleted dimension "${name}" (id: ${existing.id}) and all associated page sentiment scores.`,
         }],
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+);
+
+// ---- Tool: get_page_image ---------------------------------------------------
+
+server.tool(
+  'get_page_image',
+  'Returns a rendered image of a specific book page as base64 JPEG. Caches locally so Drive is only hit once per book.',
+  {
+    book_name: z.string().describe('The book filename or title.'),
+    page_number: z.number().int().positive().describe('The 1-based page number.'),
+  },
+  async ({ book_name, page_number }) => {
+    try {
+      const { imageData, driveUrl } = await getPageImageTool(book_name, page_number);
+      return {
+        content: [{ type: 'text', text: `Page ${page_number} image rendered.` }],
+        structuredContent: { imageData, driveUrl },
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
