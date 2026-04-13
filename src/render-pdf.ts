@@ -1,17 +1,22 @@
 import { createCanvas } from '@napi-rs/canvas';
-import * as pdfjs from 'pdfjs-dist';
-import { createRequire } from 'module';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+import path from 'node:path';
 
-// pdfjs-dist v4 requires a real workerSrc — resolve the bundled worker file
-const _require = createRequire(import.meta.url);
-const workerPath = _require.resolve('pdfjs-dist/build/pdf.worker.mjs');
-pdfjs.GlobalWorkerOptions.workerSrc = `file:///${workerPath.replace(/\\/g, '/')}`;
+// Use the legacy build — handles font fallbacks better in Node.js.
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+
+// Point workerSrc to our shim which polyfills ImageData before loading the real pdfjs worker.
+// The shim compiles to dist/pdf-worker-shim.js alongside this file (dist/render-pdf.js).
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const shimPath = path.join(__dirname, 'pdf-worker-shim.js');
+pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(shimPath).toString();
 
 export async function renderAllPdfPages(
   pdfBuffer: Buffer,
   scale = 1.0
 ): Promise<string[]> {
-  // Returns array of base64 JPEG strings, one per page (1-indexed: index 0 = page 1)
+  // Returns array of base64 JPEG strings (index 0 = page 1)
   const data = new Uint8Array(pdfBuffer);
   const pdf = await pdfjs.getDocument({
     data,
@@ -30,7 +35,6 @@ export async function renderAllPdfPages(
       canvasContext: context as unknown as CanvasRenderingContext2D,
       viewport,
     }).promise;
-    // Use JPEG at 0.8 quality — smaller storage, good enough for reading
     const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
     results.push(dataUrl.replace(/^data:image\/jpeg;base64,/, ''));
   }
