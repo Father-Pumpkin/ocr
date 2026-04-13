@@ -1,6 +1,7 @@
 node_modules/
-dist/
-ui/dist/
+/dist/
+ui/dist/*.js
+ui/dist/*.css
 .env
 data/
 credentials/

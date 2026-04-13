@@ -1,0 +1,24 @@
+name: Cut stable release
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "release" to confirm moving the stable tag to HEAD'
+        required: true
+
+jobs:
+  release:
+    if: ${{ github.event.inputs.confirm == 'release' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Move stable tag to HEAD
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f stable
+          git push origin stable --force
