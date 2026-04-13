@@ -5,5 +5,4 @@ ui/dist/
 data/
 credentials/
 *.db
-.claude/settings.local.json
-.claude/worktrees/
+.claude/
