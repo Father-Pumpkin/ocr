@@ -58,6 +58,7 @@ interface State {
   loadingPages: boolean;
   editingPage: number | null;
   tagPickerPage: number | null;
+  confirmingDelete: number | null; // page_number pending delete confirmation
   pageImages: Map<number, string>; // page_number -> base64 JPEG
   pageImagesLoading: Set<number>;
   currentBookDriveUrl: string | null;
@@ -72,6 +73,7 @@ const state: State = {
   loadingPages: false,
   editingPage: null,
   tagPickerPage: null,
+  confirmingDelete: null,
   pageImages: new Map(),
   pageImagesLoading: new Set(),
   currentBookDriveUrl: null,
@@ -262,6 +264,7 @@ async function openBook(book: Book): Promise<void> {
   state.currentPages = [];
   state.editingPage = null;
   state.tagPickerPage = null;
+  state.confirmingDelete = null;
   state.loadingPages = true;
   state.pageImages = new Map();
   state.pageImagesLoading = new Set();
@@ -411,6 +414,25 @@ function buildPageItem(page: Page): HTMLElement {
       refreshPage(page);
     });
     actions.append(saveBtn, cancelBtn);
+  } else if (state.confirmingDelete === page.page_number) {
+    const confirmMsg = document.createElement('span');
+    confirmMsg.className = 'delete-confirm-msg';
+    confirmMsg.textContent = 'Delete this page?';
+
+    const yesBtn = document.createElement('button');
+    yesBtn.className = 'btn btn-delete';
+    yesBtn.textContent = 'Yes, delete';
+    yesBtn.addEventListener('click', () => doDeletePage(page));
+
+    const noBtn = document.createElement('button');
+    noBtn.className = 'btn btn-cancel';
+    noBtn.textContent = 'Cancel';
+    noBtn.addEventListener('click', () => {
+      state.confirmingDelete = null;
+      refreshPage(page);
+    });
+
+    actions.append(confirmMsg, yesBtn, noBtn);
   } else {
     const editBtn = document.createElement('button');
     editBtn.className = 'btn btn-edit';
@@ -429,7 +451,12 @@ function buildPageItem(page: Page): HTMLElement {
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'btn btn-delete';
     deleteBtn.textContent = 'Delete';
-    deleteBtn.addEventListener('click', () => doDeletePage(page));
+    deleteBtn.addEventListener('click', () => {
+      state.confirmingDelete = page.page_number;
+      state.editingPage = null;
+      state.tagPickerPage = null;
+      refreshPage(page);
+    });
 
     actions.append(editBtn, deleteBtn);
   }
@@ -535,8 +562,8 @@ function buildInsertSeparator(afterPageNumber: number): HTMLElement {
 
 async function doDeletePage(page: Page): Promise<void> {
   if (!state.currentBook) return;
-  if (!confirm(`Delete page ${page.page_number}? This cannot be undone.`)) return;
   const book = state.currentBook;
+  state.confirmingDelete = null;
   try {
     await mcpApp.callServerTool({
       name: 'delete_page',
