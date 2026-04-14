@@ -425,7 +425,13 @@ function buildPageItem(page: Page): HTMLElement {
           ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       });
     });
-    actions.append(editBtn);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn btn-delete';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', () => doDeletePage(page));
+
+    actions.append(editBtn, deleteBtn);
   }
 
   head.append(label, actions);
@@ -525,6 +531,22 @@ function buildInsertSeparator(afterPageNumber: number): HTMLElement {
 
   sep.append(btn);
   return sep;
+}
+
+async function doDeletePage(page: Page): Promise<void> {
+  if (!state.currentBook) return;
+  if (!confirm(`Delete page ${page.page_number}? This cannot be undone.`)) return;
+  const book = state.currentBook;
+  try {
+    await mcpApp.callServerTool({
+      name: 'delete_page',
+      arguments: { book_name: book.title, page_number: page.page_number },
+    });
+    toast(`Page ${page.page_number} deleted.`);
+    await openBook(book);
+  } catch (err) {
+    toast(`Failed to delete page: ${(err as Error).message}`, 'err');
+  }
 }
 
 async function doInsertPage(afterPageNumber: number): Promise<void> {

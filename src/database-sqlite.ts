@@ -484,4 +484,42 @@ export class SqliteAdapter implements DatabaseAdapter {
     const row = doInsert();
     return Promise.resolve(coercePage(row));
   }
+
+  async deletePage(bookId: number, pageNumber: number): Promise<boolean> {
+    const doDelete = this.db.transaction(() => {
+      // Delete the page and its cached image
+      const result = this.db.prepare(
+        'DELETE FROM pages WHERE book_id = ? AND page_number = ?'
+      ).run(bookId, pageNumber);
+
+      if (result.changes === 0) return false;
+
+      this.db.prepare(
+        'DELETE FROM page_images WHERE book_id = ? AND page_number = ?'
+      ).run(bookId, pageNumber);
+
+      // Shift pages above down by 1 (negative intermediary avoids UNIQUE conflicts)
+      this.db.prepare(`
+        UPDATE pages SET page_number = -(page_number - 1)
+        WHERE book_id = ? AND page_number > ?
+      `).run(bookId, pageNumber);
+      this.db.prepare(`
+        UPDATE pages SET page_number = -page_number
+        WHERE book_id = ? AND page_number < 0
+      `).run(bookId);
+
+      this.db.prepare(`
+        UPDATE page_images SET page_number = -(page_number - 1)
+        WHERE book_id = ? AND page_number > ?
+      `).run(bookId, pageNumber);
+      this.db.prepare(`
+        UPDATE page_images SET page_number = -page_number
+        WHERE book_id = ? AND page_number < 0
+      `).run(bookId);
+
+      return true;
+    });
+
+    return Promise.resolve(doDelete());
+  }
 }

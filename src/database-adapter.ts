@@ -96,6 +96,7 @@ export interface DatabaseAdapter {
   cachePageImages(bookId: number, images: Array<{ pageNumber: number; imageData: string }>): Promise<void>;
   hasAnyPageImage(bookId: number): Promise<boolean>;
 
-  // Page insertion
+  // Page insertion / deletion
   insertPageAfter(bookId: number, afterPageNumber: number): Promise<PageRow>;
+  deletePage(bookId: number, pageNumber: number): Promise<boolean>;
 }

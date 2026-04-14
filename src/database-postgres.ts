@@ -542,6 +542,15 @@ export class PostgresAdapter implements DatabaseAdapter {
     return rows.length > 0 && rows[0].exists;
   }
 
+  async deletePage(bookId: number, pageNumber: number): Promise<boolean> {
+    const result = await this.sql`DELETE FROM pages WHERE book_id = ${bookId} AND page_number = ${pageNumber}`;
+    if (result.count === 0) return false;
+    await this.sql`DELETE FROM page_images WHERE book_id = ${bookId} AND page_number = ${pageNumber}`;
+    await this.sql`UPDATE pages SET page_number = page_number - 1 WHERE book_id = ${bookId} AND page_number > ${pageNumber}`;
+    await this.sql`UPDATE page_images SET page_number = page_number - 1 WHERE book_id = ${bookId} AND page_number > ${pageNumber}`;
+    return true;
+  }
+
   async insertPageAfter(bookId: number, afterPageNumber: number): Promise<PageRow> {
     const newPageNumber = afterPageNumber + 1;
     // Postgres supports ORDER BY in UPDATE via a subquery trick to avoid UNIQUE conflicts

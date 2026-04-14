@@ -156,6 +156,8 @@ main {
 .btn-edit   { background: var(--card-h); color: var(--text); border: 1px solid var(--border); }
 .btn-save   { background: var(--accent); color: #fff; }
 .btn-cancel { background: var(--card-h); color: var(--muted); border: 1px solid var(--border); }
+.btn-delete { background: none; color: var(--error-col); border: 1px solid transparent; }
+.btn-delete:hover:not(:disabled) { border-color: var(--error-col); opacity: 1; }
 
 .page-body { padding: 0.65rem 0.85rem; }
 

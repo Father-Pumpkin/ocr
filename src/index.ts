@@ -33,6 +33,7 @@ import { updatePage } from './tools/update-page.js';
 import { tagPage } from './tools/tag-page.js';
 import { getPageImageTool } from './tools/get-page-image.js';
 import { insertPage } from './tools/insert-page.js';
+import { deletePageTool } from './tools/delete-page.js';
 import { checkAndProcessBatch } from './ocr.js';
 
 // ---------------------------------------------------------------------------
@@ -434,9 +435,11 @@ server.tool(
   async ({ book_name, page_number }) => {
     try {
       const { imageData, driveUrl } = await getPageImageTool(book_name, page_number);
+      const sc: Record<string, unknown> = { driveUrl };
+      if (imageData) sc.imageData = imageData;
       return {
-        content: [{ type: 'text', text: `Page ${page_number} image rendered.` }],
-        structuredContent: { imageData, driveUrl },
+        content: [{ type: 'text', text: imageData ? `Page ${page_number} image rendered.` : `Page ${page_number} has no associated PDF image.` }],
+        structuredContent: sc,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -465,6 +468,26 @@ server.tool(
         content: [{ type: 'text', text: result.text }],
         structuredContent: { page_number: result.page_number },
       };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+);
+
+// ---- Tool: delete_page ------------------------------------------------------
+
+server.tool(
+  'delete_page',
+  'Deletes a page from a book and renumbers all subsequent pages. Also removes any cached image for that page.',
+  {
+    book_name: z.string().describe('The book filename or title.'),
+    page_number: z.number().int().positive().describe('The 1-based page number to delete.'),
+  },
+  async ({ book_name, page_number }) => {
+    try {
+      const result = await deletePageTool({ book_name, page_number });
+      return { content: [{ type: 'text', text: result }] };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
