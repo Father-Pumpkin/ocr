@@ -32,6 +32,7 @@ import { getTranscription } from './tools/get-transcription.js';
 import { updatePage } from './tools/update-page.js';
 import { tagPage } from './tools/tag-page.js';
 import { getPageImageTool } from './tools/get-page-image.js';
+import { insertPage } from './tools/insert-page.js';
 import { checkAndProcessBatch } from './ocr.js';
 
 // ---------------------------------------------------------------------------
@@ -436,6 +437,33 @@ server.tool(
       return {
         content: [{ type: 'text', text: `Page ${page_number} image rendered.` }],
         structuredContent: { imageData, driveUrl },
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+);
+
+// ---- Tool: insert_page ------------------------------------------------------
+
+server.tool(
+  'insert_page',
+  'Inserts a new blank page after the specified page number, renumbering all subsequent pages.',
+  {
+    book_name: z.string().describe('The book filename or title.'),
+    after_page_number: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Insert after this page number. Use 0 to insert before the first page.'),
+  },
+  async ({ book_name, after_page_number }) => {
+    try {
+      const result = await insertPage({ book_name, after_page_number });
+      return {
+        content: [{ type: 'text', text: result.text }],
+        structuredContent: { page_number: result.page_number },
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

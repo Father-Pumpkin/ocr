@@ -46,3 +46,4 @@ export async function getBookSentiment(bookId: number, dimensionIds?: number[], 
 export async function getPageImage(bookId: number, pageNumber: number) { return (await getAdapter()).getPageImage(bookId, pageNumber); }
 export async function cachePageImages(bookId: number, images: Array<{ pageNumber: number; imageData: string }>) { return (await getAdapter()).cachePageImages(bookId, images); }
 export async function hasAnyPageImage(bookId: number) { return (await getAdapter()).hasAnyPageImage(bookId); }
+export async function insertPageAfter(bookId: number, afterPageNumber: number) { return (await getAdapter()).insertPageAfter(bookId, afterPageNumber); }

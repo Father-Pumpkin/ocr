@@ -541,6 +541,27 @@ export class PostgresAdapter implements DatabaseAdapter {
     `;
     return rows.length > 0 && rows[0].exists;
   }
+
+  async insertPageAfter(bookId: number, afterPageNumber: number): Promise<PageRow> {
+    const newPageNumber = afterPageNumber + 1;
+    // Postgres supports ORDER BY in UPDATE via a subquery trick to avoid UNIQUE conflicts
+    await this.sql`
+      UPDATE pages SET page_number = page_number + 1
+      WHERE book_id = ${bookId} AND page_number >= ${newPageNumber}
+    `;
+    await this.sql`
+      UPDATE page_images SET page_number = page_number + 1
+      WHERE book_id = ${bookId} AND page_number >= ${newPageNumber}
+    `;
+    await this.sql`
+      INSERT INTO pages (book_id, page_number, transcription, status)
+      VALUES (${bookId}, ${newPageNumber}, NULL, 'pending')
+    `;
+    const rows = await this.sql<PageRow[]>`
+      SELECT * FROM pages WHERE book_id = ${bookId} AND page_number = ${newPageNumber}
+    `;
+    return rows[0];
+  }
 }
 
 export async function createPostgresAdapter(): Promise<PostgresAdapter> {

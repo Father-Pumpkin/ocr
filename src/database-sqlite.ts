@@ -446,4 +446,42 @@ export class SqliteAdapter implements DatabaseAdapter {
     const row = this.db.prepare('SELECT 1 FROM page_images WHERE book_id = ? LIMIT 1').get(bookId);
     return Promise.resolve(!!row);
   }
+
+  async insertPageAfter(bookId: number, afterPageNumber: number): Promise<PageRow> {
+    const newPageNumber = afterPageNumber + 1;
+
+    const doInsert = this.db.transaction(() => {
+      // Shift pages: use negative intermediary to avoid UNIQUE constraint conflicts
+      this.db.prepare(`
+        UPDATE pages SET page_number = -(page_number + 1)
+        WHERE book_id = ? AND page_number >= ?
+      `).run(bookId, newPageNumber);
+      this.db.prepare(`
+        UPDATE pages SET page_number = -page_number
+        WHERE book_id = ? AND page_number < 0
+      `).run(bookId);
+
+      // Shift cached page images the same way
+      this.db.prepare(`
+        UPDATE page_images SET page_number = -(page_number + 1)
+        WHERE book_id = ? AND page_number >= ?
+      `).run(bookId, newPageNumber);
+      this.db.prepare(`
+        UPDATE page_images SET page_number = -page_number
+        WHERE book_id = ? AND page_number < 0
+      `).run(bookId);
+
+      // Insert the new blank page
+      this.db.prepare(`
+        INSERT INTO pages (book_id, page_number, transcription, status)
+        VALUES (?, ?, NULL, 'pending')
+      `).run(bookId, newPageNumber);
+
+      return this.db.prepare('SELECT * FROM pages WHERE book_id = ? AND page_number = ?')
+        .get(bookId, newPageNumber) as SqlitePageRow;
+    });
+
+    const row = doInsert();
+    return Promise.resolve(coercePage(row));
+  }
 }

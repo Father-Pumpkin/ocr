@@ -322,3 +322,37 @@ main {
   flex-direction: column;
   min-width: 0;
 }
+
+/* ── Insert page separator ─────────────────────────────────────────────────── */
+.insert-separator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.insert-separator:hover { opacity: 1; }
+.insert-separator::before,
+.insert-separator::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.insert-btn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  padding: 0.1rem 0.6rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s;
+}
+.insert-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

@@ -329,8 +329,10 @@ function renderBookPages(): void {
   const list = document.createElement('div');
   list.className = 'pages-list';
   list.id = 'pages-list';
+  list.append(buildInsertSeparator(0));
   for (const page of state.currentPages) {
     list.append(buildPageItem(page));
+    list.append(buildInsertSeparator(page.page_number));
   }
   main.append(list);
 }
@@ -446,16 +448,6 @@ function buildPageItem(page: Page): HTMLElement {
     img.src = `data:image/jpeg;base64,${imageData}`;
     img.alt = `Page ${page.page_number}`;
     imageCol.append(img);
-
-    if (state.currentBookDriveUrl) {
-      const link = document.createElement('a');
-      link.className = 'drive-link';
-      link.href = state.currentBookDriveUrl;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.textContent = 'Open in Drive \u2197';
-      imageCol.append(link);
-    }
   } else if (isLoadingImg) {
     const imgSpinner = document.createElement('div');
     imgSpinner.className = 'img-spinner';
@@ -464,6 +456,16 @@ function buildPageItem(page: Page): HTMLElement {
     const placeholder = document.createElement('div');
     placeholder.className = 'img-placeholder';
     imageCol.append(placeholder);
+  }
+
+  if (state.currentBookDriveUrl) {
+    const link = document.createElement('a');
+    link.className = 'drive-link';
+    link.href = state.currentBookDriveUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = 'Open in Drive \u2197';
+    imageCol.append(link);
   }
 
   // Right: tags + body
@@ -508,6 +510,36 @@ function buildPageItem(page: Page): HTMLElement {
   columns.append(imageCol, textCol);
   item.append(columns);
   return item;
+}
+
+// ── Insert page ────────────────────────────────────────────────────────────
+
+function buildInsertSeparator(afterPageNumber: number): HTMLElement {
+  const sep = document.createElement('div');
+  sep.className = 'insert-separator';
+
+  const btn = document.createElement('button');
+  btn.className = 'insert-btn';
+  btn.textContent = afterPageNumber === 0 ? '+ Insert before page 1' : '+ Insert page here';
+  btn.addEventListener('click', () => doInsertPage(afterPageNumber));
+
+  sep.append(btn);
+  return sep;
+}
+
+async function doInsertPage(afterPageNumber: number): Promise<void> {
+  if (!state.currentBook) return;
+  const book = state.currentBook;
+  try {
+    await mcpApp.callServerTool({
+      name: 'insert_page',
+      arguments: { book_name: book.title, after_page_number: afterPageNumber },
+    });
+    toast(`Page inserted${afterPageNumber > 0 ? ` after page ${afterPageNumber}` : ' before page 1'}.`);
+    await openBook(book);
+  } catch (err) {
+    toast(`Failed to insert page: ${(err as Error).message}`, 'err');
+  }
 }
 
 function buildTagsSection(page: Page, pickerOpen: boolean): HTMLElement {
