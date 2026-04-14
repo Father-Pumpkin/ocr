@@ -448,28 +448,22 @@ export class PostgresAdapter {
         if (result.count === 0)
             return false;
         await this.sql `DELETE FROM page_images WHERE book_id = ${bookId} AND page_number = ${pageNumber}`;
-        await this.sql `UPDATE pages SET page_number = page_number - 1 WHERE book_id = ${bookId} AND page_number > ${pageNumber}`;
-        await this.sql `UPDATE page_images SET page_number = page_number - 1 WHERE book_id = ${bookId} AND page_number > ${pageNumber}`;
+        // Use negative intermediary to avoid UNIQUE constraint violations during renumber
+        await this.sql `UPDATE pages SET page_number = -(page_number - 1) WHERE book_id = ${bookId} AND page_number > ${pageNumber}`;
+        await this.sql `UPDATE pages SET page_number = -page_number WHERE book_id = ${bookId} AND page_number < 0`;
+        await this.sql `UPDATE page_images SET page_number = -(page_number - 1) WHERE book_id = ${bookId} AND page_number > ${pageNumber}`;
+        await this.sql `UPDATE page_images SET page_number = -page_number WHERE book_id = ${bookId} AND page_number < 0`;
         return true;
     }
     async insertPageAfter(bookId, afterPageNumber) {
         const newPageNumber = afterPageNumber + 1;
-        // Postgres supports ORDER BY in UPDATE via a subquery trick to avoid UNIQUE conflicts
-        await this.sql `
-      UPDATE pages SET page_number = page_number + 1
-      WHERE book_id = ${bookId} AND page_number >= ${newPageNumber}
-    `;
-        await this.sql `
-      UPDATE page_images SET page_number = page_number + 1
-      WHERE book_id = ${bookId} AND page_number >= ${newPageNumber}
-    `;
-        await this.sql `
-      INSERT INTO pages (book_id, page_number, transcription, status)
-      VALUES (${bookId}, ${newPageNumber}, NULL, 'pending')
-    `;
-        const rows = await this.sql `
-      SELECT * FROM pages WHERE book_id = ${bookId} AND page_number = ${newPageNumber}
-    `;
+        // Use negative intermediary to avoid UNIQUE constraint violations during renumber
+        await this.sql `UPDATE pages SET page_number = -(page_number + 1) WHERE book_id = ${bookId} AND page_number >= ${newPageNumber}`;
+        await this.sql `UPDATE pages SET page_number = -page_number WHERE book_id = ${bookId} AND page_number < 0`;
+        await this.sql `UPDATE page_images SET page_number = -(page_number + 1) WHERE book_id = ${bookId} AND page_number >= ${newPageNumber}`;
+        await this.sql `UPDATE page_images SET page_number = -page_number WHERE book_id = ${bookId} AND page_number < 0`;
+        await this.sql `INSERT INTO pages (book_id, page_number, transcription, status) VALUES (${bookId}, ${newPageNumber}, NULL, 'pending')`;
+        const rows = await this.sql `SELECT * FROM pages WHERE book_id = ${bookId} AND page_number = ${newPageNumber}`;
         return rows[0];
     }
 }
