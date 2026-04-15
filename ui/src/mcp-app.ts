@@ -64,6 +64,7 @@ interface State {
   currentBook: Book | null;
   currentPages: Page[];
   loadingPages: boolean;
+  expandedPages: Set<number>;
   editingPage: number | null;
   tagPickerPage: number | null;
   confirmingDelete: number | null;
@@ -83,6 +84,7 @@ const state: State = {
   currentBook: null,
   currentPages: [],
   loadingPages: false,
+  expandedPages: new Set(),
   editingPage: null,
   tagPickerPage: null,
   confirmingDelete: null,
@@ -278,6 +280,7 @@ async function openBook(book: Book): Promise<void> {
   state.view = 'book';
   state.currentBook = book;
   state.currentPages = [];
+  state.expandedPages = new Set();
   state.editingPage = null;
   state.tagPickerPage = null;
   state.confirmingDelete = null;
@@ -426,6 +429,70 @@ async function loadPageImages(): Promise<void> {
 // ── Page item ──────────────────────────────────────────────────────────────
 
 function buildPageItem(page: Page): HTMLElement {
+  const forceExpand =
+    state.editingPage === page.page_number ||
+    state.confirmingDelete === page.page_number;
+  const isExpanded = forceExpand || state.expandedPages.has(page.page_number);
+  return isExpanded ? buildPageItemExpanded(page) : buildPageItemCollapsed(page);
+}
+
+function togglePageExpanded(page: Page): void {
+  if (state.expandedPages.has(page.page_number)) {
+    state.expandedPages.delete(page.page_number);
+    // clear transient state when collapsing
+    if (state.editingPage === page.page_number) state.editingPage = null;
+    if (state.tagPickerPage === page.page_number) state.tagPickerPage = null;
+    if (state.confirmingDelete === page.page_number) state.confirmingDelete = null;
+  } else {
+    state.expandedPages.add(page.page_number);
+  }
+  refreshPage(page);
+}
+
+function buildPageItemCollapsed(page: Page): HTMLElement {
+  const isIllus  = Boolean(page.has_illustration);
+  const isEdited = Boolean(page.is_edited);
+  const isRetranscribing = state.retranscribingPage === page.page_number;
+
+  const item = document.createElement('div');
+  item.className = 'page-item-collapsed';
+  item.id = `page-${page.page_number}`;
+  item.addEventListener('click', () => togglePageExpanded(page));
+
+  const chevron = document.createElement('span');
+  chevron.className = 'page-chevron';
+  chevron.textContent = '▶';
+
+  const num = document.createElement('span');
+  num.className = 'page-num';
+  num.textContent = `Page ${page.page_number}`;
+
+  const preview = document.createElement('span');
+  if (isRetranscribing) {
+    preview.className = 'page-preview page-preview-retranscribing';
+    preview.textContent = 'Transcribing…';
+  } else if (isIllus) {
+    preview.className = 'page-preview page-preview-illus';
+    preview.textContent = 'Illustration only';
+  } else {
+    preview.className = 'page-preview';
+    preview.textContent = page.transcription
+      ? page.transcription.replace(/\n/g, ' ')
+      : '(no transcription)';
+  }
+
+  item.append(chevron, num);
+  if (isEdited) {
+    const eb = document.createElement('span');
+    eb.className = 'badge badge-edited';
+    eb.textContent = 'Edited';
+    item.append(eb);
+  }
+  item.append(preview);
+  return item;
+}
+
+function buildPageItemExpanded(page: Page): HTMLElement {
   const isEditing   = state.editingPage === page.page_number;
   const isTagPicker = state.tagPickerPage === page.page_number;
   const isIllus     = Boolean(page.has_illustration);
@@ -438,6 +505,12 @@ function buildPageItem(page: Page): HTMLElement {
   // ── Head ──────────────────────────────────────────────────────────────────
   const head = document.createElement('div');
   head.className = 'page-head';
+
+  const collapseBtn = document.createElement('button');
+  collapseBtn.className = 'page-collapse-btn';
+  collapseBtn.title = 'Collapse';
+  collapseBtn.textContent = '▼';
+  collapseBtn.addEventListener('click', () => togglePageExpanded(page));
 
   const label = document.createElement('div');
   label.className = 'page-label';
@@ -491,6 +564,7 @@ function buildPageItem(page: Page): HTMLElement {
     editBtn.className = 'btn btn-edit';
     editBtn.textContent = 'Edit';
     editBtn.addEventListener('click', () => {
+      state.expandedPages.add(page.page_number);
       state.editingPage = page.page_number;
       state.tagPickerPage = null;
       refreshPage(page);
@@ -512,6 +586,7 @@ function buildPageItem(page: Page): HTMLElement {
     deleteBtn.className = 'btn btn-delete';
     deleteBtn.textContent = 'Delete';
     deleteBtn.addEventListener('click', () => {
+      state.expandedPages.add(page.page_number);
       state.confirmingDelete = page.page_number;
       state.editingPage = null;
       state.tagPickerPage = null;
@@ -521,7 +596,7 @@ function buildPageItem(page: Page): HTMLElement {
     actions.append(editBtn, retranscribeBtn, deleteBtn);
   }
 
-  head.append(label, actions);
+  head.append(collapseBtn, label, actions);
   item.append(head);
 
   // ── Two-column layout ──────────────────────────────────────────────────────
@@ -749,6 +824,14 @@ async function doDeletePage(page: Page): Promise<void> {
       if (p.page_number > deletedNum) p.page_number--;
     }
 
+    // Shift expanded page numbers
+    state.expandedPages.delete(deletedNum);
+    const newExpanded = new Set<number>();
+    for (const pn of state.expandedPages) {
+      newExpanded.add(pn > deletedNum ? pn - 1 : pn);
+    }
+    state.expandedPages = newExpanded;
+
     // Shift image cache down
     state.pageImages.delete(deletedNum);
     const newImages = new Map<number, string>();
@@ -779,6 +862,14 @@ async function doInsertPage(afterPageNumber: number): Promise<void> {
     for (const p of state.currentPages) {
       if (p.page_number >= newPageNumber) p.page_number++;
     }
+
+    // Shift expanded page numbers and expand the new page
+    const newExpanded = new Set<number>();
+    for (const pn of state.expandedPages) {
+      newExpanded.add(pn >= newPageNumber ? pn + 1 : pn);
+    }
+    newExpanded.add(newPageNumber);
+    state.expandedPages = newExpanded;
 
     // Insert new blank page at correct position
     const newPage: Page = {
