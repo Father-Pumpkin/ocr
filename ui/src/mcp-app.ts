@@ -37,6 +37,14 @@ interface Page {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
+const MODELS = [
+  { id: 'claude-sonnet-4-6',        label: 'Sonnet (recommended)' },
+  { id: 'claude-opus-4-6',          label: 'Opus (most accurate)' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Haiku (fast / cheap)' },
+] as const;
+
+const DEFAULT_MODEL = MODELS[0].id;
+
 const PRESET_TAGS = [
   'first page of content',
   'character introduction',
@@ -58,7 +66,9 @@ interface State {
   loadingPages: boolean;
   editingPage: number | null;
   tagPickerPage: number | null;
-  confirmingDelete: number | null; // page_number pending delete confirmation
+  confirmingDelete: number | null;
+  retranscribingPage: number | null; // page_number currently being re-transcribed
+  selectedModel: string;
   pageImages: Map<number, string>; // page_number -> base64 JPEG
   pageImagesLoading: Set<number>;
   currentBookDriveUrl: string | null;
@@ -74,6 +84,8 @@ const state: State = {
   editingPage: null,
   tagPickerPage: null,
   confirmingDelete: null,
+  retranscribingPage: null,
+  selectedModel: DEFAULT_MODEL,
   pageImages: new Map(),
   pageImagesLoading: new Set(),
   currentBookDriveUrl: null,
@@ -265,6 +277,7 @@ async function openBook(book: Book): Promise<void> {
   state.editingPage = null;
   state.tagPickerPage = null;
   state.confirmingDelete = null;
+  state.retranscribingPage = null;
   state.loadingPages = true;
   state.pageImages = new Map();
   state.pageImagesLoading = new Set();
@@ -302,7 +315,20 @@ function renderBookShell(): void {
   sep.textContent = ' / ';
   const crumbTitle = document.createElement('h1');
   crumbTitle.textContent = state.currentBook!.title;
-  header.append(crumbLib, sep, crumbTitle);
+
+  const modelSelect = document.createElement('select');
+  modelSelect.className = 'model-select';
+  modelSelect.title = 'Model used for re-transcription';
+  for (const m of MODELS) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.label;
+    opt.selected = m.id === state.selectedModel;
+    modelSelect.append(opt);
+  }
+  modelSelect.addEventListener('change', () => { state.selectedModel = modelSelect.value; });
+
+  header.append(crumbLib, sep, crumbTitle, modelSelect);
   app.append(header);
 
   const main = document.createElement('main');
@@ -460,6 +486,13 @@ function buildPageItem(page: Page): HTMLElement {
       });
     });
 
+    const retranscribeBtn = document.createElement('button');
+    retranscribeBtn.className = 'btn btn-retranscribe';
+    const isRetranscribing = state.retranscribingPage === page.page_number;
+    retranscribeBtn.textContent = isRetranscribing ? 'Transcribing…' : 'Re-transcribe';
+    retranscribeBtn.disabled = isRetranscribing;
+    retranscribeBtn.addEventListener('click', () => doRetranscribe(page));
+
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'btn btn-delete';
     deleteBtn.textContent = 'Delete';
@@ -470,7 +503,7 @@ function buildPageItem(page: Page): HTMLElement {
       refreshPage(page);
     });
 
-    actions.append(editBtn, deleteBtn);
+    actions.append(editBtn, retranscribeBtn, deleteBtn);
   }
 
   head.append(label, actions);
@@ -570,6 +603,42 @@ function buildInsertSeparator(afterPageNumber: number): HTMLElement {
 
   sep.append(btn);
   return sep;
+}
+
+async function doRetranscribe(page: Page): Promise<void> {
+  if (!state.currentBook) return;
+  state.retranscribingPage = page.page_number;
+  refreshPage(page);
+  try {
+    await mcpApp.callServerTool({
+      name: 'retranscribe_page',
+      arguments: {
+        book_name: state.currentBook.title,
+        page_number: page.page_number,
+        model: state.selectedModel,
+      },
+    });
+    // Reload this page's data from server
+    const result = await mcpApp.callServerTool({
+      name: 'get_transcription',
+      arguments: { book_name: state.currentBook.title, page_start: page.page_number, page_end: page.page_number, include_illustrations: true },
+    });
+    const structured = result.structuredContent as { pages?: Page[] } | undefined;
+    const updated = structured?.pages?.[0];
+    if (updated) {
+      const idx = state.currentPages.findIndex(p => p.page_number === page.page_number);
+      if (idx !== -1) {
+        state.currentPages[idx] = { ...updated, tags: parseTags((updated as unknown as { tags?: string | string[] }).tags) };
+      }
+    }
+    toast(`Page ${page.page_number} re-transcribed.`);
+  } catch (err) {
+    toast(`Re-transcription failed: ${(err as Error).message}`, 'err');
+  } finally {
+    state.retranscribingPage = null;
+    const p = state.currentPages.find(p => p.page_number === page.page_number) ?? page;
+    refreshPage(p);
+  }
 }
 
 async function doDeletePage(page: Page): Promise<void> {

@@ -1,6 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { upsertPage, updateBookStatus, hasExistingTranscription, getBatchJob, updateBatchJobStatus, } from './database.js';
-const MODEL = 'claude-haiku-4-5-20251001';
+export const DEFAULT_MODEL = 'claude-sonnet-4-6';
+export const AVAILABLE_MODELS = [
+    'claude-sonnet-4-6',
+    'claude-opus-4-6',
+    'claude-haiku-4-5-20251001',
+];
 const MAX_TOKENS = 8192;
 function getAnthropicClient() {
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -12,19 +17,31 @@ function getAnthropicClient() {
 // ---------------------------------------------------------------------------
 // Prompts
 // ---------------------------------------------------------------------------
-const SYSTEM_PROMPT = `You are transcribing pages from a scanned Spanish children's book PDF.
-For EACH page in the PDF, output a block in this exact format:
+const SHARED_PREAMBLE = `You are transcribing pages from a scanned Spanish children's book.
+
+Each image shows a TWO-PAGE SPREAD of an open book. The LEFT physical page is on the left side of the image and the RIGHT physical page is on the right side, with the book's spine running vertically through the centre. Treat each physical page as a completely separate unit — transcribe the left page's text in full before moving to the right page. Never read across the spine as though text continues from one side to the other.
+
+Transcribe the text EXACTLY as it is printed. Do not correct spelling, punctuation, accents, capitalisation, or grammar — even if something appears to be an error. Preserve the author's original wording verbatim.
+
+Additional rules:
+- Transcribe ONLY the printed story text intended to be read by the audience
+- DO NOT transcribe text that appears inside illustrations (signs, chalkboards, posters, labels, or any text that is part of the artwork)
+- Preserve line breaks exactly as they appear on each physical page
+- If a spread contains no story text (blank pages, endpapers, or a fully illustration-only spread), output exactly: [ILLUSTRATION]
+- Do not add commentary, translations, headings, or notes of any kind`;
+// Used for whole-book PDF transcription — requires [PAGE N] block format
+const BOOK_SYSTEM_PROMPT = `${SHARED_PREAMBLE}
+
+For EACH PDF page output a block in this exact format:
 
 [PAGE N]
 <transcription>
 
-Rules:
-- Replace N with the page number (1-based)
-- Transcribe ONLY the printed story text intended to be read by the audience
-- DO NOT transcribe text that appears within illustrations (e.g., text on chalkboards, signs, posters, or other objects in the artwork)
-- Preserve line breaks exactly as they appear on the page
-- If a page contains no story text (blank page, endpaper, illustration-only page), output exactly: [ILLUSTRATION]
-- Do not add any commentary, headings, or notes`;
+Replace N with the 1-based PDF page number. Output one block per PDF page.`;
+// Used for single-page image re-transcription — just return the text
+const PAGE_SYSTEM_PROMPT = `${SHARED_PREAMBLE}
+
+Output only the transcribed text, with no extra formatting or labels. If the spread has no story text, output exactly: [ILLUSTRATION]`;
 // ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
@@ -40,17 +57,43 @@ function parsePdfTranscription(text) {
     return results;
 }
 // ---------------------------------------------------------------------------
-// Single-request OCR
+// Single-page image re-transcription
 // ---------------------------------------------------------------------------
-export async function transcribeBookPdf(bookId, bookTitle, pdfBuffer, overwrite) {
+export async function transcribeSinglePageImage(imageBase64, model = DEFAULT_MODEL) {
+    const client = getAnthropicClient();
+    const response = await client.messages.create({
+        model,
+        max_tokens: MAX_TOKENS,
+        system: PAGE_SYSTEM_PROMPT,
+        messages: [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'image',
+                        source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 },
+                    },
+                    { type: 'text', text: 'Transcribe this page.' },
+                ],
+            },
+        ],
+    });
+    const textBlock = response.content.find((b) => b.type === 'text');
+    const text = textBlock ? textBlock.text.trim() : '';
+    return text || '[ILLUSTRATION]';
+}
+// ---------------------------------------------------------------------------
+// Single-request OCR (whole book)
+// ---------------------------------------------------------------------------
+export async function transcribeBookPdf(bookId, bookTitle, pdfBuffer, overwrite, model = DEFAULT_MODEL) {
     const client = getAnthropicClient();
     await updateBookStatus(bookId, 'transcribing');
     const pdfBase64 = pdfBuffer.toString('base64');
-    process.stderr.write(`[OCR MCP] Sending PDF to Claude for transcription...\n`);
+    process.stderr.write(`[OCR MCP] Sending PDF to Claude (${model}) for transcription...\n`);
     const response = await client.messages.create({
-        model: MODEL,
+        model,
         max_tokens: MAX_TOKENS,
-        system: SYSTEM_PROMPT,
+        system: BOOK_SYSTEM_PROMPT,
         messages: [
             {
                 role: 'user',
@@ -86,14 +129,14 @@ export async function transcribeBookPdf(bookId, bookTitle, pdfBuffer, overwrite)
     await updateBookStatus(bookId, 'complete', pages.length);
     return { transcribed, skipped, pageCount: pages.length };
 }
-export async function createOcrBatch(requests) {
+export async function createOcrBatch(requests, model = DEFAULT_MODEL) {
     const client = getAnthropicClient();
     const batchRequests = requests.map((req) => ({
         custom_id: `book-${req.bookId}`,
         params: {
-            model: MODEL,
+            model,
             max_tokens: MAX_TOKENS,
-            system: SYSTEM_PROMPT,
+            system: BOOK_SYSTEM_PROMPT,
             messages: [
                 {
                     role: 'user',
@@ -112,7 +155,7 @@ export async function createOcrBatch(requests) {
             ],
         },
     }));
-    process.stderr.write(`[OCR MCP] Creating Anthropic batch with ${batchRequests.length} book(s)...\n`);
+    process.stderr.write(`[OCR MCP] Creating Anthropic batch with ${batchRequests.length} book(s) using ${model}...\n`);
     const batch = await client.messages.batches.create({ requests: batchRequests });
     process.stderr.write(`[OCR MCP] Batch created: ${batch.id}\n`);
     return batch.id;
@@ -142,7 +185,6 @@ export async function checkAndProcessBatch(batchId) {
             const msg = result.result.message;
             const textBlock = msg.content.find((b) => b.type === 'text');
             const text = textBlock ? textBlock.text : '';
-            // custom_id format: "book-{bookId}"
             const match = customId.match(/^book-(\d+)$/);
             if (match) {
                 const bookId = parseInt(match[1], 10);

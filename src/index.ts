@@ -34,6 +34,8 @@ import { tagPage } from './tools/tag-page.js';
 import { getPageImageTool } from './tools/get-page-image.js';
 import { insertPage } from './tools/insert-page.js';
 import { deletePageTool } from './tools/delete-page.js';
+import { retranscribePage } from './tools/retranscribe-page.js';
+import { AVAILABLE_MODELS, DEFAULT_MODEL } from './ocr.js';
 import { checkAndProcessBatch } from './ocr.js';
 
 // ---------------------------------------------------------------------------
@@ -125,10 +127,15 @@ server.tool(
       .optional()
       .default(false)
       .describe('If true, re-transcribes pages that already have transcriptions.'),
+    model: z
+      .enum(AVAILABLE_MODELS)
+      .optional()
+      .default(DEFAULT_MODEL)
+      .describe('Claude model to use. Sonnet (default) is recommended. Haiku is faster/cheaper. Opus is most accurate.'),
   },
-  async ({ book_names, use_batch, overwrite }) => {
+  async ({ book_names, use_batch, overwrite, model }) => {
     try {
-      const result = await transcribeBooks({ book_names, use_batch, overwrite });
+      const result = await transcribeBooks({ book_names, use_batch, overwrite, model });
       return { content: [{ type: 'text', text: result }] };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -468,6 +475,31 @@ server.tool(
         content: [{ type: 'text', text: result.text }],
         structuredContent: { page_number: result.page_number },
       };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+);
+
+// ---- Tool: retranscribe_page ------------------------------------------------
+
+server.tool(
+  'retranscribe_page',
+  'Re-transcribes a single page using its cached image and the specified model. Use this to improve a poor transcription without re-running the whole book.',
+  {
+    book_name: z.string().describe('The book filename or title.'),
+    page_number: z.number().int().positive().describe('The 1-based page number to re-transcribe.'),
+    model: z
+      .enum(AVAILABLE_MODELS)
+      .optional()
+      .default(DEFAULT_MODEL)
+      .describe('Claude model to use. Sonnet (default) is recommended. Opus is most accurate.'),
+  },
+  async ({ book_name, page_number, model }) => {
+    try {
+      const result = await retranscribePage({ book_name, page_number, model });
+      return { content: [{ type: 'text', text: result }] };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };

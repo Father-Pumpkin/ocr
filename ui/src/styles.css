@@ -158,7 +158,21 @@ main {
 .btn-cancel { background: var(--card-h); color: var(--muted); border: 1px solid var(--border); }
 .btn-delete { background: none; color: var(--error-col); border: 1px solid transparent; }
 .btn-delete:hover:not(:disabled) { border-color: var(--error-col); opacity: 1; }
+.btn-retranscribe { background: none; color: var(--muted); border: 1px solid transparent; }
+.btn-retranscribe:hover:not(:disabled) { border-color: var(--border); color: var(--text); opacity: 1; }
 .delete-confirm-msg { font-size: 0.78rem; color: var(--error-col); align-self: center; }
+
+.model-select {
+  margin-left: auto;
+  background: var(--card);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.model-select:focus { outline: none; border-color: var(--accent); }
 
 .page-body { padding: 0.65rem 0.85rem; }
 

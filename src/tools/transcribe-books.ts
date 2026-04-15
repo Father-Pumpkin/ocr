@@ -14,10 +14,11 @@ interface TranscribeBooksArgs {
   book_names: string[];  // empty = all books
   use_batch?: boolean;
   overwrite?: boolean;
+  model?: string;
 }
 
 export async function transcribeBooks(args: TranscribeBooksArgs): Promise<string> {
-  const { book_names, use_batch = false, overwrite = false } = args;
+  const { book_names, use_batch = false, overwrite = false, model } = args;
 
   // 1. Fetch the file list from Drive
   let driveFiles: DriveFile[];
@@ -87,7 +88,8 @@ export async function transcribeBooks(args: TranscribeBooksArgs): Promise<string
           book.id,
           title,
           pdfBuffer,
-          overwrite
+          overwrite,
+          model
         );
 
         results.push(
@@ -133,7 +135,7 @@ export async function transcribeBooks(args: TranscribeBooksArgs): Promise<string
   }
 
   try {
-    const batchId = await createOcrBatch(batchRequests);
+    const batchId = await createOcrBatch(batchRequests, model);
     await createBatchJob(batchId, bookIds);
 
     return (

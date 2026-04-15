@@ -2,7 +2,7 @@ import { listPdfsInFolder, downloadPdf } from '../google-drive.js';
 import { upsertBook, updateBookStatus, createBatchJob, } from '../database.js';
 import { transcribeBookPdf, createOcrBatch, } from '../ocr.js';
 export async function transcribeBooks(args) {
-    const { book_names, use_batch = false, overwrite = false } = args;
+    const { book_names, use_batch = false, overwrite = false, model } = args;
     // 1. Fetch the file list from Drive
     let driveFiles;
     try {
@@ -46,7 +46,7 @@ export async function transcribeBooks(args) {
                 const book = await upsertBook(file.id, file.name, title);
                 process.stderr.write(`[OCR MCP] Downloading PDF from Drive...\n`);
                 const pdfBuffer = await downloadPdf(file.id);
-                const { transcribed, skipped, pageCount } = await transcribeBookPdf(book.id, title, pdfBuffer, overwrite);
+                const { transcribed, skipped, pageCount } = await transcribeBookPdf(book.id, title, pdfBuffer, overwrite, model);
                 results.push(`✓ "${title}": ${pageCount} page(s) found, ${transcribed} transcribed, ${skipped} skipped.`);
             }
             catch (err) {
@@ -81,7 +81,7 @@ export async function transcribeBooks(args) {
         return 'No books to submit for batch transcription.';
     }
     try {
-        const batchId = await createOcrBatch(batchRequests);
+        const batchId = await createOcrBatch(batchRequests, model);
         await createBatchJob(batchId, bookIds);
         return (`Batch created successfully!\n` +
             `Batch ID: ${batchId}\n` +
