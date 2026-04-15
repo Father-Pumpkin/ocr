@@ -401,8 +401,11 @@ server.tool('retranscribe_page', 'Re-transcribes a single page using its cached 
         .describe('Claude model to use. Sonnet (default) is recommended. Opus is most accurate.'),
 }, async ({ book_name, page_number, model }) => {
     try {
-        const result = await retranscribePage({ book_name, page_number, model });
-        return { content: [{ type: 'text', text: result }] };
+        const { text, transcription } = await retranscribePage({ book_name, page_number, model });
+        return {
+            content: [{ type: 'text', text }],
+            structuredContent: { transcription },
+        };
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);

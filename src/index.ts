@@ -498,8 +498,11 @@ server.tool(
   },
   async ({ book_name, page_number, model }) => {
     try {
-      const result = await retranscribePage({ book_name, page_number, model });
-      return { content: [{ type: 'text', text: result }] };
+      const { text, transcription } = await retranscribePage({ book_name, page_number, model });
+      return {
+        content: [{ type: 'text', text }],
+        structuredContent: { transcription },
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };

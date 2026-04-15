@@ -67,7 +67,9 @@ interface State {
   editingPage: number | null;
   tagPickerPage: number | null;
   confirmingDelete: number | null;
-  retranscribingPage: number | null; // page_number currently being re-transcribed
+  retranscribingPage: number | null;
+  retranscribingAll: boolean;
+  retranscribeProgress: { current: number; total: number } | null;
   selectedModel: string;
   pageImages: Map<number, string>; // page_number -> base64 JPEG
   pageImagesLoading: Set<number>;
@@ -85,6 +87,8 @@ const state: State = {
   tagPickerPage: null,
   confirmingDelete: null,
   retranscribingPage: null,
+  retranscribingAll: false,
+  retranscribeProgress: null,
   selectedModel: DEFAULT_MODEL,
   pageImages: new Map(),
   pageImagesLoading: new Set(),
@@ -278,6 +282,8 @@ async function openBook(book: Book): Promise<void> {
   state.tagPickerPage = null;
   state.confirmingDelete = null;
   state.retranscribingPage = null;
+  state.retranscribingAll = false;
+  state.retranscribeProgress = null;
   state.loadingPages = true;
   state.pageImages = new Map();
   state.pageImagesLoading = new Set();
@@ -298,6 +304,7 @@ async function openBook(book: Book): Promise<void> {
   }
 
   renderBookPages();
+  updateRetranscribeAllBtn();
   loadPageImages(); // fire-and-forget
 }
 
@@ -328,7 +335,15 @@ function renderBookShell(): void {
   }
   modelSelect.addEventListener('change', () => { state.selectedModel = modelSelect.value; });
 
-  header.append(crumbLib, sep, crumbTitle, modelSelect);
+  const retranscribeAllBtn = document.createElement('button');
+  retranscribeAllBtn.className = 'btn btn-retranscribe';
+  retranscribeAllBtn.id = 'retranscribe-all-btn';
+  const uneditedCount = state.currentPages.filter(p => !p.is_edited && !p.has_illustration && p.transcription !== null).length;
+  retranscribeAllBtn.textContent = `Re-transcribe unedited (${uneditedCount})`;
+  retranscribeAllBtn.disabled = uneditedCount === 0;
+  retranscribeAllBtn.addEventListener('click', doRetranscribeAllUnedited);
+
+  header.append(crumbLib, sep, crumbTitle, retranscribeAllBtn, modelSelect);
   app.append(header);
 
   const main = document.createElement('main');
@@ -610,7 +625,7 @@ async function doRetranscribe(page: Page): Promise<void> {
   state.retranscribingPage = page.page_number;
   refreshPage(page);
   try {
-    await mcpApp.callServerTool({
+    const result = await mcpApp.callServerTool({
       name: 'retranscribe_page',
       arguments: {
         book_name: state.currentBook.title,
@@ -618,17 +633,12 @@ async function doRetranscribe(page: Page): Promise<void> {
         model: state.selectedModel,
       },
     });
-    // Reload this page's data from server
-    const result = await mcpApp.callServerTool({
-      name: 'get_transcription',
-      arguments: { book_name: state.currentBook.title, page_start: page.page_number, page_end: page.page_number, include_illustrations: true },
-    });
-    const structured = result.structuredContent as { pages?: Page[] } | undefined;
-    const updated = structured?.pages?.[0];
-    if (updated) {
+    const structured = result.structuredContent as { transcription?: string } | undefined;
+    if (structured?.transcription !== undefined) {
       const idx = state.currentPages.findIndex(p => p.page_number === page.page_number);
       if (idx !== -1) {
-        state.currentPages[idx] = { ...updated, tags: parseTags((updated as unknown as { tags?: string | string[] }).tags) };
+        state.currentPages[idx].transcription = structured.transcription;
+        state.currentPages[idx].has_illustration = structured.transcription === '[ILLUSTRATION]';
       }
     }
     toast(`Page ${page.page_number} re-transcribed.`);
@@ -638,6 +648,71 @@ async function doRetranscribe(page: Page): Promise<void> {
     state.retranscribingPage = null;
     const p = state.currentPages.find(p => p.page_number === page.page_number) ?? page;
     refreshPage(p);
+  }
+}
+
+async function doRetranscribeAllUnedited(): Promise<void> {
+  if (!state.currentBook || state.retranscribingAll) return;
+
+  const targets = state.currentPages.filter(p => !p.is_edited && !p.has_illustration && p.transcription !== null);
+  if (targets.length === 0) {
+    toast('No unedited text pages to re-transcribe.');
+    return;
+  }
+
+  state.retranscribingAll = true;
+  state.retranscribeProgress = { current: 0, total: targets.length };
+  updateRetranscribeAllBtn();
+
+  for (const page of targets) {
+    if (!state.retranscribingAll) break; // user cancelled (future: add cancel button)
+    state.retranscribingPage = page.page_number;
+    refreshPage(page);
+    try {
+      const result = await mcpApp.callServerTool({
+        name: 'retranscribe_page',
+        arguments: {
+          book_name: state.currentBook!.title,
+          page_number: page.page_number,
+          model: state.selectedModel,
+        },
+      });
+      const structured = result.structuredContent as { transcription?: string } | undefined;
+      if (structured?.transcription !== undefined) {
+        const idx = state.currentPages.findIndex(p => p.page_number === page.page_number);
+        if (idx !== -1) {
+          state.currentPages[idx].transcription = structured.transcription;
+          state.currentPages[idx].has_illustration = structured.transcription === '[ILLUSTRATION]';
+        }
+      }
+    } catch {
+      // continue with next page on error
+    } finally {
+      state.retranscribingPage = null;
+      const p = state.currentPages.find(p => p.page_number === page.page_number) ?? page;
+      refreshPage(p);
+    }
+
+    state.retranscribeProgress!.current++;
+    updateRetranscribeAllBtn();
+  }
+
+  state.retranscribingAll = false;
+  state.retranscribeProgress = null;
+  updateRetranscribeAllBtn();
+  toast('Re-transcription complete.');
+}
+
+function updateRetranscribeAllBtn(): void {
+  const btn = document.getElementById('retranscribe-all-btn') as HTMLButtonElement | null;
+  if (!btn) return;
+  const targets = state.currentPages.filter(p => !p.is_edited && !p.has_illustration && p.transcription !== null);
+  if (state.retranscribingAll && state.retranscribeProgress) {
+    btn.textContent = `Re-transcribing… ${state.retranscribeProgress.current}/${state.retranscribeProgress.total}`;
+    btn.disabled = true;
+  } else {
+    btn.textContent = `Re-transcribe unedited (${targets.length})`;
+    btn.disabled = targets.length === 0;
   }
 }
 
