@@ -332,12 +332,24 @@ function renderBookPages(): void {
   const list = document.createElement('div');
   list.className = 'pages-list';
   list.id = 'pages-list';
+  populatePagesList(list);
+  main.append(list);
+}
+
+function populatePagesList(list: HTMLElement): void {
   list.append(buildInsertSeparator(0));
   for (const page of state.currentPages) {
     list.append(buildPageItem(page));
     list.append(buildInsertSeparator(page.page_number));
   }
-  main.append(list);
+}
+
+// Re-render the pages list in place without losing scroll position
+function rerenderPagesList(): void {
+  const list = document.getElementById('pages-list');
+  if (!list) return;
+  list.innerHTML = '';
+  populatePagesList(list);
 }
 
 // ── Load page images (background) ──────────────────────────────────────────
@@ -562,15 +574,30 @@ function buildInsertSeparator(afterPageNumber: number): HTMLElement {
 
 async function doDeletePage(page: Page): Promise<void> {
   if (!state.currentBook) return;
-  const book = state.currentBook;
   state.confirmingDelete = null;
+  const deletedNum = page.page_number;
   try {
     await mcpApp.callServerTool({
       name: 'delete_page',
-      arguments: { book_name: book.title, page_number: page.page_number },
+      arguments: { book_name: state.currentBook.title, page_number: deletedNum },
     });
-    toast(`Page ${page.page_number} deleted.`);
-    await openBook(book);
+
+    // Remove page and renumber subsequent ones in place
+    state.currentPages = state.currentPages.filter(p => p.page_number !== deletedNum);
+    for (const p of state.currentPages) {
+      if (p.page_number > deletedNum) p.page_number--;
+    }
+
+    // Shift image cache down
+    state.pageImages.delete(deletedNum);
+    const newImages = new Map<number, string>();
+    for (const [pn, img] of state.pageImages) {
+      newImages.set(pn > deletedNum ? pn - 1 : pn, img);
+    }
+    state.pageImages = newImages;
+
+    rerenderPagesList();
+    toast(`Page ${deletedNum} deleted.`);
   } catch (err) {
     toast(`Failed to delete page: ${(err as Error).message}`, 'err');
   }
@@ -580,12 +607,49 @@ async function doInsertPage(afterPageNumber: number): Promise<void> {
   if (!state.currentBook) return;
   const book = state.currentBook;
   try {
-    await mcpApp.callServerTool({
+    const result = await mcpApp.callServerTool({
       name: 'insert_page',
       arguments: { book_name: book.title, after_page_number: afterPageNumber },
     });
+    const data = result.structuredContent as { page_number?: number } | undefined;
+    const newPageNumber = data?.page_number ?? afterPageNumber + 1;
+
+    // Renumber existing pages >= newPageNumber in place
+    for (const p of state.currentPages) {
+      if (p.page_number >= newPageNumber) p.page_number++;
+    }
+
+    // Insert new blank page at correct position
+    const newPage: Page = {
+      id: -1,
+      book_id: book.id,
+      page_number: newPageNumber,
+      transcription: null,
+      has_illustration: false,
+      is_edited: false,
+      tags: [],
+      status: 'pending',
+      batch_custom_id: null,
+      created_at: '',
+      updated_at: '',
+    };
+    const insertIdx = state.currentPages.findIndex(p => p.page_number > newPageNumber);
+    if (insertIdx === -1) state.currentPages.push(newPage);
+    else state.currentPages.splice(insertIdx, 0, newPage);
+
+    // Shift image cache up
+    const newImages = new Map<number, string>();
+    for (const [pn, img] of state.pageImages) {
+      newImages.set(pn >= newPageNumber ? pn + 1 : pn, img);
+    }
+    state.pageImages = newImages;
+
+    rerenderPagesList();
     toast(`Page inserted${afterPageNumber > 0 ? ` after page ${afterPageNumber}` : ' before page 1'}.`);
-    await openBook(book);
+    requestAnimationFrame(() => {
+      document.getElementById(`page-${newPageNumber}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
   } catch (err) {
     toast(`Failed to insert page: ${(err as Error).message}`, 'err');
   }
