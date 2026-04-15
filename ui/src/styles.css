@@ -32,6 +32,8 @@
 }
 
 /* ── Base ────────────────────────────────────────────────────────────────── */
+html, body { height: 100%; margin: 0; }
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -49,7 +51,7 @@ body {
   font-size: 0.85rem;
 }
 
-#app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+#app { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
 /* ── Header ──────────────────────────────────────────────────────────────── */
 header {
@@ -99,31 +101,31 @@ main {
 /* ── Library view ────────────────────────────────────────────────────────── */
 .view-header {
   display: flex; align-items: baseline; justify-content: space-between;
-  margin-bottom: 0.85rem;
+  margin-bottom: 0.5rem;
 }
 .view-header h2 { font-size: 0.95rem; font-weight: 600; }
 .view-header .sub { color: var(--muted); font-size: 0.78rem; }
 
-.books-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 0.6rem;
+.books-list { display: flex; flex-direction: column; }
+
+.book-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 0.5rem; height: 34px; gap: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background 0.1s;
 }
-.book-card {
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: 8px; padding: 0.85rem;
-  cursor: pointer; transition: background 0.12s, border-color 0.12s;
-  display: flex; flex-direction: column; gap: 0.5rem;
+.book-row:last-child { border-bottom: none; }
+.book-row:hover { background: var(--card-h); }
+
+.book-row-title {
+  flex: 1; min-width: 0;
+  font-size: 0.85rem; font-weight: 400;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.book-card:hover { background: var(--card-h); border-color: var(--accent); }
-.book-card .title {
-  font-weight: 500; font-size: 0.88rem; line-height: 1.35;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+.book-row-right {
+  display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;
 }
-.book-card .meta {
-  display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;
-}
-.book-card .pages-lbl { color: var(--muted); font-size: 0.75rem; }
+.book-row-pages { color: var(--muted); font-size: 0.72rem; }
 
 /* ── Empty state ─────────────────────────────────────────────────────────── */
 .empty { text-align: center; padding: 3rem 1.5rem; color: var(--muted); }

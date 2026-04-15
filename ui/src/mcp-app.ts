@@ -190,52 +190,52 @@ function renderLibrary(): void {
     return;
   }
 
-  const grid = document.createElement('div');
-  grid.className = 'books-grid';
+  const list = document.createElement('div');
+  list.className = 'books-list';
   for (const book of state.books) {
-    grid.append(buildBookCard(book));
+    list.append(buildBookRow(book));
   }
-  main.append(grid);
+  main.append(list);
 }
 
-function cardId(book: Book): string {
-  return `book-card-${book.drive_file_id}`;
+function bookRowId(book: Book): string {
+  return `book-row-${book.drive_file_id}`;
 }
 
-function buildBookCard(book: Book): HTMLElement {
-  const card = document.createElement('div');
-  card.className = 'book-card';
-  card.id = cardId(book);
+function buildBookRow(book: Book): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'book-row';
+  row.id = bookRowId(book);
 
-  const title = document.createElement('div');
-  title.className = 'title';
+  const title = document.createElement('span');
+  title.className = 'book-row-title';
   title.textContent = book.title;
 
-  const meta = document.createElement('div');
-  meta.className = 'meta';
-  const pagesLbl = document.createElement('span');
-  pagesLbl.className = 'pages-lbl';
-  pagesLbl.textContent = book.page_count != null ? `${book.page_count} pages` : '—';
-  meta.append(makeBadge(book.status), pagesLbl);
+  const right = document.createElement('div');
+  right.className = 'book-row-right';
 
-  card.append(title, meta);
+  if (book.page_count != null) {
+    const pages = document.createElement('span');
+    pages.className = 'book-row-pages';
+    pages.textContent = `${book.page_count}p`;
+    right.append(pages);
+  }
 
   if (book.status === 'complete') {
-    card.addEventListener('click', () => openBook(book));
+    row.addEventListener('click', () => openBook(book));
   } else {
     const btn = document.createElement('button');
-    btn.className = 'transcribe-btn';
+    btn.className = 'btn transcribe-btn';
     const isTranscribing = state.transcribingBooks.has(book.title);
     btn.textContent = isTranscribing ? 'Transcribing…' : 'Transcribe';
     btn.disabled = isTranscribing;
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      triggerTranscription(book);
-    });
-    card.append(btn);
+    btn.addEventListener('click', (e) => { e.stopPropagation(); triggerTranscription(book); });
+    right.append(btn);
   }
 
-  return card;
+  right.append(makeBadge(book.status));
+  row.append(title, right);
+  return row;
 }
 
 async function refreshLibrary(): Promise<void> {
@@ -269,9 +269,9 @@ async function triggerTranscription(book: Book): Promise<void> {
 }
 
 function updateBookCard(book: Book): void {
-  const existing = document.getElementById(cardId(book));
+  const existing = document.getElementById(bookRowId(book));
   if (!existing) return;
-  existing.replaceWith(buildBookCard(book));
+  existing.replaceWith(buildBookRow(book));
 }
 
 // ── Book view ──────────────────────────────────────────────────────────────
