@@ -333,6 +333,13 @@ export class SqliteAdapter {
         const row = this.db.prepare('SELECT image_data FROM page_images WHERE book_id = ? AND page_number = ?').get(bookId, pageNumber);
         return Promise.resolve(row?.image_data ?? null);
     }
+    async setPageImage(bookId, pageNumber, imageData) {
+        this.db.prepare(`
+      INSERT OR REPLACE INTO page_images (book_id, page_number, image_data)
+      VALUES (?, ?, ?)
+    `).run(bookId, pageNumber, imageData);
+        return Promise.resolve();
+    }
     async cachePageImages(bookId, images) {
         const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO page_images (book_id, page_number, image_data)

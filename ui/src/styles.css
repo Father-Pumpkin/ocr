@@ -334,6 +334,12 @@ main {
   background: var(--card-h); border-radius: 4px;
 }
 
+.upload-img-btn {
+  width: 100%;
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+}
+
 .page-text-col {
   display: flex;
   flex-direction: column;

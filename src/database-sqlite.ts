@@ -428,6 +428,14 @@ export class SqliteAdapter implements DatabaseAdapter {
     return Promise.resolve(row?.image_data ?? null);
   }
 
+  async setPageImage(bookId: number, pageNumber: number, imageData: string): Promise<void> {
+    this.db.prepare(`
+      INSERT OR REPLACE INTO page_images (book_id, page_number, image_data)
+      VALUES (?, ?, ?)
+    `).run(bookId, pageNumber, imageData);
+    return Promise.resolve();
+  }
+
   async cachePageImages(bookId: number, images: Array<{ pageNumber: number; imageData: string }>): Promise<void> {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO page_images (book_id, page_number, image_data)

@@ -35,6 +35,7 @@ import { getPageImageTool } from './tools/get-page-image.js';
 import { insertPage } from './tools/insert-page.js';
 import { deletePageTool } from './tools/delete-page.js';
 import { retranscribePage } from './tools/retranscribe-page.js';
+import { setPageImageTool } from './tools/set-page-image.js';
 import { AVAILABLE_MODELS, DEFAULT_MODEL } from './ocr.js';
 import { checkAndProcessBatch } from './ocr.js';
 
@@ -448,6 +449,27 @@ server.tool(
         content: [{ type: 'text', text: imageData ? `Page ${page_number} image rendered.` : `Page ${page_number} has no associated PDF image.` }],
         structuredContent: sc,
       };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+);
+
+// ---- Tool: set_page_image ---------------------------------------------------
+
+server.tool(
+  'set_page_image',
+  'Uploads a custom image for a specific page, replacing any existing image. Useful for manually inserted pages or rescanned pages that need a new image.',
+  {
+    book_name: z.string().describe('The book filename or title.'),
+    page_number: z.number().int().positive().describe('The 1-based page number.'),
+    image_base64: z.string().describe('Base64-encoded JPEG image data (no data URL prefix).'),
+  },
+  async ({ book_name, page_number, image_base64 }) => {
+    try {
+      const result = await setPageImageTool({ book_name, page_number, image_base64 });
+      return { content: [{ type: 'text', text: result }] };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };

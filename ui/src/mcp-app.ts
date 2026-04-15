@@ -551,6 +551,23 @@ function buildPageItem(page: Page): HTMLElement {
     imageCol.append(placeholder);
   }
 
+  // Upload image button
+  const uploadInput = document.createElement('input');
+  uploadInput.type = 'file';
+  uploadInput.accept = 'image/*';
+  uploadInput.style.display = 'none';
+  uploadInput.addEventListener('change', () => {
+    const file = uploadInput.files?.[0];
+    if (file) doUploadImage(page, file);
+  });
+
+  const uploadBtn = document.createElement('button');
+  uploadBtn.className = 'btn btn-edit upload-img-btn';
+  uploadBtn.textContent = imageData ? 'Replace image' : 'Upload image';
+  uploadBtn.addEventListener('click', () => uploadInput.click());
+
+  imageCol.append(uploadInput, uploadBtn);
+
   if (state.currentBookDriveUrl) {
     const link = document.createElement('a');
     link.className = 'drive-link';
@@ -796,6 +813,41 @@ async function doInsertPage(afterPageNumber: number): Promise<void> {
     });
   } catch (err) {
     toast(`Failed to insert page: ${(err as Error).message}`, 'err');
+  }
+}
+
+async function doUploadImage(page: Page, file: File): Promise<void> {
+  if (!state.currentBook) return;
+
+  // Convert whatever format the user uploaded to JPEG via canvas
+  let base64: string;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    canvas.getContext('2d')!.drawImage(bitmap, 0, 0);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+    base64 = dataUrl.slice('data:image/jpeg;base64,'.length);
+  } catch {
+    toast('Could not read image file.', 'err');
+    return;
+  }
+
+  try {
+    await mcpApp.callServerTool({
+      name: 'set_page_image',
+      arguments: {
+        book_name: state.currentBook.title,
+        page_number: page.page_number,
+        image_base64: base64,
+      },
+    });
+    state.pageImages.set(page.page_number, base64);
+    refreshPage(page);
+    toast(`Image uploaded for page ${page.page_number}.`);
+  } catch (err) {
+    toast(`Upload failed: ${(err as Error).message}`, 'err');
   }
 }
 

@@ -40,6 +40,7 @@ export async function upsertPageSentiment(pageId, dimensionId, score, rationale,
 export async function getPageSentiment(pageId) { return (await getAdapter()).getPageSentiment(pageId); }
 export async function getBookSentiment(bookId, dimensionIds, pageStart, pageEnd) { return (await getAdapter()).getBookSentiment(bookId, dimensionIds, pageStart, pageEnd); }
 export async function getPageImage(bookId, pageNumber) { return (await getAdapter()).getPageImage(bookId, pageNumber); }
+export async function setPageImage(bookId, pageNumber, imageData) { return (await getAdapter()).setPageImage(bookId, pageNumber, imageData); }
 export async function cachePageImages(bookId, images) { return (await getAdapter()).cachePageImages(bookId, images); }
 export async function hasAnyPageImage(bookId) { return (await getAdapter()).hasAnyPageImage(bookId); }
 export async function insertPageAfter(bookId, afterPageNumber) { return (await getAdapter()).insertPageAfter(bookId, afterPageNumber); }

@@ -426,6 +426,13 @@ export class PostgresAdapter {
     `;
         return rows.length > 0 ? rows[0].image_data : null;
     }
+    async setPageImage(bookId, pageNumber, imageData) {
+        await this.sql `
+      INSERT INTO page_images (book_id, page_number, image_data)
+      VALUES (${bookId}, ${pageNumber}, ${imageData})
+      ON CONFLICT (book_id, page_number) DO UPDATE SET image_data = EXCLUDED.image_data
+    `;
+    }
     async cachePageImages(bookId, images) {
         if (images.length === 0)
             return;
