@@ -1,4 +1,4 @@
-import { getBookByName, getPages } from '../database.js';
+import { getBookByName, getPages } from '../core/database.js';
 export async function getTranscription(args) {
     const { book_name, page_start, page_end, include_illustrations = false, } = args;
     const book = await getBookByName(book_name);

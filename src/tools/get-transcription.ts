@@ -1,4 +1,4 @@
-import { getBookByName, getPages } from '../database.js';
+import { getBookByName, getPages } from '../core/database.js';
 
 interface GetTranscriptionArgs {
   book_name: string;

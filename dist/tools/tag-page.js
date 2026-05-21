@@ -1,4 +1,4 @@
-import { getBookByName, setPageTags } from '../database.js';
+import { getBookByName, setPageTags } from '../core/database.js';
 export async function tagPage(args) {
     const { book_name, page_number, tags } = args;
     const book = await getBookByName(book_name);

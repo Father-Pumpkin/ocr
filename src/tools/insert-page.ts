@@ -1,4 +1,4 @@
-import { getBookByName, insertPageAfter } from '../database.js';
+import { getBookByName, insertPageAfter } from '../core/database.js';
 
 interface InsertPageArgs {
   book_name: string;

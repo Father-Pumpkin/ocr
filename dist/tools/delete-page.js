@@ -1,4 +1,4 @@
-import { getBookByName, deletePage } from '../database.js';
+import { getBookByName, deletePage } from '../core/database.js';
 export async function deletePageTool(args) {
     const { book_name, page_number } = args;
     const book = await getBookByName(book_name);

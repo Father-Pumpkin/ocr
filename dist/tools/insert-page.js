@@ -1,4 +1,4 @@
-import { getBookByName, insertPageAfter } from '../database.js';
+import { getBookByName, insertPageAfter } from '../core/database.js';
 export async function insertPage(args) {
     const { book_name, after_page_number } = args;
     const book = await getBookByName(book_name);

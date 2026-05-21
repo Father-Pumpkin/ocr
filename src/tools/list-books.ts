@@ -1,5 +1,5 @@
-import { listPdfsInFolder, AuthRequiredError, type DriveFile } from '../google-drive.js';
-import { getAllBooks, getBookByDriveId, type BookRow } from '../database.js';
+import { listPdfsInFolder, AuthRequiredError, type DriveFile } from '../core/google-drive.js';
+import { getAllBooks, getBookByDriveId, type BookRow } from '../core/database.js';
 
 export async function listBooks(): Promise<string> {
   let driveFiles: DriveFile[];

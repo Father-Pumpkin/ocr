@@ -1,6 +1,6 @@
-import { listPdfsInFolder, downloadPdf } from '../google-drive.js';
-import { upsertBook, updateBookStatus, createBatchJob, } from '../database.js';
-import { transcribeBookPdf, createOcrBatch, } from '../ocr.js';
+import { listPdfsInFolder, downloadPdf } from '../core/google-drive.js';
+import { upsertBook, updateBookStatus, createBatchJob, } from '../core/database.js';
+import { transcribeBookPdf, createOcrBatch, } from '../core/ocr.js';
 export async function transcribeBooks(args) {
     const { book_names, use_batch = false, overwrite = false, model } = args;
     // 1. Fetch the file list from Drive

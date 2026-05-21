@@ -1,6 +1,6 @@
-import { listPdfsInFolder, downloadPdf, AuthRequiredError, type DriveFile } from '../google-drive.js';
-import { getAllBooks, getInProgressBatchJobs, upsertBook, updateBookStatus, createBatchJob } from '../database.js';
-import { createOcrBatch, type BatchBookRequest } from '../ocr.js';
+import { listPdfsInFolder, downloadPdf, AuthRequiredError, type DriveFile } from '../core/google-drive.js';
+import { getAllBooks, getInProgressBatchJobs, upsertBook, updateBookStatus, createBatchJob } from '../core/database.js';
+import { createOcrBatch, type BatchBookRequest } from '../core/ocr.js';
 
 interface BatchTranscribeArgs {
   book_names: string[];  // empty = all eligible books

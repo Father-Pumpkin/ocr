@@ -23,8 +23,9 @@ import { registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from '@model
 import { z } from 'zod';
 import fs from 'fs';
 
-import { getAdapter, getInProgressBatchJobs, getAllBooks, getBookByName, getPages, getAllDimensions, getDimensionByName, createDimension, updateDimension, deleteDimension } from './database.js';
-import { listPdfsInFolder, clearAuth } from './google-drive.js';
+import { getAdapter, getInProgressBatchJobs, getAllDimensions, getDimensionByName, createDimension, updateDimension, deleteDimension } from './core/database.js';
+import { clearAuth } from './core/google-drive.js';
+import { listLibrary, getBookPagesData } from './core/book-service.js';
 import { listBooks } from './tools/list-books.js';
 import { transcribeBooks } from './tools/transcribe-books.js';
 import { batchTranscribe } from './tools/batch-transcribe.js';
@@ -36,8 +37,8 @@ import { insertPage } from './tools/insert-page.js';
 import { deletePageTool } from './tools/delete-page.js';
 import { retranscribePage } from './tools/retranscribe-page.js';
 import { setPageImageTool } from './tools/set-page-image.js';
-import { AVAILABLE_MODELS, DEFAULT_MODEL } from './ocr.js';
-import { checkAndProcessBatch } from './ocr.js';
+import { AVAILABLE_MODELS, DEFAULT_MODEL } from './core/ocr.js';
+import { checkAndProcessBatch } from './core/ocr.js';
 
 // ---------------------------------------------------------------------------
 // Startup: ensure required directories exist
@@ -227,8 +228,7 @@ server.tool(
     try {
       const result = await getTranscription({ book_name, page_start, page_end, include_illustrations });
       // Include structured page data for the MCP App UI
-      const book = await getBookByName(book_name);
-      const pages = book ? await getPages(book.id, page_start, page_end) : [];
+      const { pages } = await getBookPagesData(book_name, page_start, page_end);
       return {
         content: [{ type: 'text', text: result }],
         structuredContent: { pages },
@@ -588,28 +588,7 @@ registerAppTool(
     _meta: { ui: { resourceUri: VIEWER_RESOURCE_URI } },
   },
   async () => {
-    const [dbBooks, driveFiles] = await Promise.all([
-      getAllBooks(),
-      listPdfsInFolder().catch(() => []),
-    ]);
-
-    const dbByDriveId = new Map(dbBooks.map((b) => [b.drive_file_id, b]));
-
-    // All Drive files, with DB data merged in; unknown Drive files get status 'pending'
-    const books = driveFiles.length > 0
-      ? driveFiles.map((file) => dbByDriveId.get(file.id) ?? {
-          id: -1,
-          title: file.name.replace(/\.pdf$/i, ''),
-          drive_file_id: file.id,
-          drive_file_name: file.name,
-          page_count: null,
-          status: 'pending',
-          created_by: null,
-          created_at: '',
-          updated_at: '',
-        })
-      : dbBooks; // fallback to DB-only if Drive unavailable
-
+    const books = await listLibrary();
     return {
       content: [{ type: 'text', text: `Library: ${books.length} book(s) available.` }],
       structuredContent: { books },

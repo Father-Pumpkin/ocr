@@ -1,6 +1,6 @@
-import { getBookByName, getPageImage, cachePageImages, hasAnyPageImage } from '../database.js';
-import { downloadPdf } from '../google-drive.js';
-import { renderAllPdfPages } from '../render-pdf.js';
+import { getBookByName, getPageImage, cachePageImages, hasAnyPageImage } from '../core/database.js';
+import { downloadPdf } from '../core/google-drive.js';
+import { renderAllPdfPages } from '../core/render-pdf.js';
 export async function getPageImageTool(bookName, pageNumber) {
     const book = await getBookByName(bookName);
     if (!book)
