@@ -8,6 +8,7 @@ import { libraryRouter } from './routes/library.js';
 export async function createHttpServer(port) {
     const app = express();
     app.use(express.json({ limit: '50mb' }));
+    app.get('/api/health', (_req, res) => res.json({ ok: true }));
     app.use('/api', libraryRouter);
     await new Promise((resolve, reject) => {
         const server = app.listen(port, () => resolve());

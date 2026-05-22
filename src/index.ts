@@ -19,13 +19,12 @@ for (const key of ['DATABASE_PATH', 'CREDENTIALS_PATH']) {
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import { z } from 'zod';
 import fs from 'fs';
 
 import { getAdapter, getInProgressBatchJobs, getAllDimensions, getDimensionByName, createDimension, updateDimension, deleteDimension } from './core/database.js';
 import { clearAuth } from './core/google-drive.js';
-import { listLibrary, getBookPagesData } from './core/book-service.js';
+import { getBookPagesData } from './core/book-service.js';
 import { listBooks } from './tools/list-books.js';
 import { transcribeBooks } from './tools/transcribe-books.js';
 import { batchTranscribe } from './tools/batch-transcribe.js';
@@ -571,42 +570,6 @@ server.tool(
       const message = err instanceof Error ? err.message : String(err);
       return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
     }
-  }
-);
-
-// ---- Tool: view_transcriptions (MCP App entry point) ------------------------
-
-const VIEWER_RESOURCE_URI = 'ui://transcription-viewer/app.html';
-
-registerAppTool(
-  server,
-  'view_transcriptions',
-  {
-    title: 'Transcription Viewer',
-    description: 'Opens the interactive transcription viewer for browsing and editing book transcriptions.',
-    inputSchema: {},
-    _meta: { ui: { resourceUri: VIEWER_RESOURCE_URI } },
-  },
-  async () => {
-    const books = await listLibrary();
-    return {
-      content: [{ type: 'text', text: `Library: ${books.length} book(s) available.` }],
-      structuredContent: { books },
-    };
-  }
-);
-
-// ---- Resource: transcription viewer (MCP App UI) ----------------------------
-
-registerAppResource(
-  server,
-  'transcription-viewer',
-  VIEWER_RESOURCE_URI,
-  { mimeType: RESOURCE_MIME_TYPE },
-  async () => {
-    const htmlPath = path.join(PROJECT_ROOT, 'ui', 'dist', 'mcp-app.html');
-    const html = fs.readFileSync(htmlPath, 'utf-8');
-    return { contents: [{ uri: VIEWER_RESOURCE_URI, mimeType: RESOURCE_MIME_TYPE, text: html }] };
   }
 );
 

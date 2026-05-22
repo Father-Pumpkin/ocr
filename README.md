@@ -145,7 +145,6 @@ Opens the **Transcription Viewer** — a UI embedded directly in chat where you 
 | `get_transcription` | Retrieve stored transcription text |
 | `update_page` | Manually correct a specific page |
 | `tag_page` | Set narrative tags on a page |
-| `view_transcriptions` | Open the interactive viewer UI |
 
 **Transcribe a book:**
 ```
@@ -167,11 +166,12 @@ Show me pages 1–5 of "El monstruo de colores"
 ## Build Commands
 
 ```bash
-npm run build:all   # Build UI (Vite) + server (TypeScript) — use this normally
-npm run build:ui    # Build UI only  → ui/dist/mcp-app.html
-npm run build       # Build server only → dist/
-npm run dev         # Run server directly with tsx (no build needed)
+npm run build       # Build MCP server → dist/
+npm run build:app   # Build Electron app → out/
+npm run dev         # Run MCP server directly with tsx (no build needed)
+npm run dev:app     # Launch Electron app in dev mode
 npm start           # Run compiled dist/index.js
+npm run start:app   # Run built Electron app from out/
 ```
 
 Run `npm run build:all` after pulling updates that change the UI or server.
@@ -194,20 +194,19 @@ Run `npm run build:all` after pulling updates that change the UI or server.
 │       ├── get-transcription.ts
 │       ├── update-page.ts
 │       └── tag-page.ts
-├── ui/
-│   ├── mcp-app.html          # Vite entry point
-│   ├── src/
-│   │   ├── mcp-app.ts        # UI TypeScript (App class, tool calls)
-│   │   └── styles.css        # Dark + light theme styles
-│   └── dist/                 # Built single-file HTML (gitignored)
-├── dist/                     # Compiled server JS (gitignored)
+├── electron/                 # Electron app (main + preload + renderer)
+│   ├── main.ts
+│   ├── preload.ts
+│   └── renderer/             # React app
+├── dist/                     # Compiled MCP server JS
+├── out/                      # Compiled Electron app (gitignored)
 ├── data/                     # SQLite database (gitignored)
 ├── credentials/              # OAuth token (gitignored)
 ├── .env                      # Your API keys (gitignored)
 ├── .env.example              # Copy this to .env
-├── vite.config.ts            # UI build config
-├── tsconfig.json             # Server TypeScript config
-├── tsconfig.vite.json        # UI TypeScript config
+├── electron.vite.config.ts   # Electron build config
+├── tsconfig.json             # MCP server TypeScript config
+├── tsconfig.electron.json    # Electron TypeScript config
 └── package.json
 ```
 
