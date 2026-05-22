@@ -3,23 +3,24 @@
   "version": "1.0.0",
   "description": "MCP server for OCR transcription of books from Google Drive using Claude vision",
   "type": "module",
-  "main": "out/main/main.js",
+  "main": "dist/index.js",
   "bin": {
     "ocr-mcp-server": "dist/index.js"
   },
   "files": [
     "dist/",
-    "out/"
+    "app/dist/"
   ],
   "scripts": {
     "build": "tsc",
-    "build:app": "electron-vite build",
+    "build:app": "vite build",
+    "build:all": "npm run build && npm run build:app",
     "start": "node dist/index.js",
-    "start:app": "electron-vite preview",
     "dev": "tsx src/index.ts",
-    "dev:app": "electron-vite dev",
+    "dev:server": "tsx src/http/start.ts",
+    "dev:app": "concurrently -k -n server,vite -c blue,magenta \"npm:dev:server\" \"vite\"",
     "test": "tsx --test scripts/test-render.ts",
-    "typecheck:electron": "tsc -p tsconfig.electron.json"
+    "typecheck:app": "tsc -p tsconfig.app.json"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -54,15 +55,13 @@
     "postgres": "^3.4.8"
   },
   "devDependencies": {
-    "@electron/rebuild": "^3.7.2",
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.9",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
-    "electron": "^41.7.0",
-    "electron-vite": "^3.1.0",
+    "concurrently": "^9.0.0",
     "pdf-lib": "^1.17.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
