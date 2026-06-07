@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { api, type DriveStatus as DriveStatusT } from '../api/client';
+import { api, type DriveStatus as DriveStatusT } from '../lib/api';
 
 /**
  * Banner showing Google Drive connection state. Hidden when connected. Offers a

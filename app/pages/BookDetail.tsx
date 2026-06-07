@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { api, ApiError } from '../api/client';
+import { api, ApiError } from '../lib/api';
 import type { BookRow, PageRow } from '../types';
 import { parseTags } from '../types';
 import { Loading, ErrorBox, EmptyState } from '../components/ui';
