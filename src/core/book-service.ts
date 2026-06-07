@@ -11,10 +11,19 @@ import {
   getAllBooks,
   getBookByName,
   getPages,
+  updatePageTranscription,
+  setPageTags,
+  getPageImage,
+  cachePageImages,
+  hasAnyPageImage,
+  insertPageAfter,
+  deletePage,
   type BookRow,
   type PageRow,
 } from './database.js';
-import { listPdfsInFolder, type DriveFile } from './google-drive.js';
+import { listPdfsInFolder, downloadPdf, type DriveFile } from './google-drive.js';
+import { renderAllPdfPages } from './render-pdf.js';
+import { transcribeSinglePageImage, DEFAULT_MODEL } from './ocr.js';
 
 export type {
   BookRow,
@@ -68,4 +77,121 @@ export async function getBookPagesData(
   if (!book) return { book: null, pages: [] };
   const pages = await getPages(book.id, pageStart, pageEnd);
   return { book, pages };
+}
+
+// ---------------------------------------------------------------------------
+// Page operations — structured (data-returning) equivalents of the MCP tools.
+// HTTP routes and the web chat call these; they throw NotFoundError so callers
+// can map to 404 cleanly.
+// ---------------------------------------------------------------------------
+
+/** Thrown when a named book or a specific page can't be located. */
+export class NotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotFoundError';
+  }
+}
+
+async function requireBook(bookName: string): Promise<BookRow> {
+  const book = await getBookByName(bookName);
+  if (!book) throw new NotFoundError(`Book not found: "${bookName}"`);
+  return book;
+}
+
+async function getSinglePage(bookId: number, pageNumber: number): Promise<PageRow | undefined> {
+  const pages = await getPages(bookId, pageNumber, pageNumber);
+  return pages[0];
+}
+
+/**
+ * Returns a rendered page image as base64 JPEG plus the Drive view URL.
+ * Renders and caches all pages on first miss; pages beyond the PDF range
+ * (e.g. manually inserted) resolve to imageData: null.
+ */
+export async function getPageImageData(
+  bookName: string,
+  pageNumber: number,
+): Promise<{ imageData: string | null; driveUrl: string }> {
+  const book = await requireBook(bookName);
+  const driveUrl = `https://drive.google.com/file/d/${book.drive_file_id}/view`;
+
+  const cached = await getPageImage(book.id, pageNumber);
+  if (cached) return { imageData: cached, driveUrl };
+
+  // Other pages cached but not this one → no corresponding PDF page.
+  if (await hasAnyPageImage(book.id)) return { imageData: null, driveUrl };
+
+  // Full miss — render the whole PDF once and cache.
+  const pdfBuffer = await downloadPdf(book.drive_file_id);
+  const images = await renderAllPdfPages(pdfBuffer, 1.0);
+  await cachePageImages(book.id, images.map((imageData, i) => ({ pageNumber: i + 1, imageData })));
+  return { imageData: images[pageNumber - 1] ?? null, driveUrl };
+}
+
+/** Updates a page's transcription (marks it edited) and returns the new row. */
+export async function updatePageText(
+  bookName: string,
+  pageNumber: number,
+  transcription: string,
+): Promise<PageRow> {
+  const book = await requireBook(bookName);
+  const ok = await updatePageTranscription(book.id, pageNumber, transcription);
+  if (!ok) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
+  const page = await getSinglePage(book.id, pageNumber);
+  if (!page) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
+  return page;
+}
+
+/** Replaces a page's tags with the supplied list and returns the new row. */
+export async function setPageTagsData(
+  bookName: string,
+  pageNumber: number,
+  tags: string[],
+): Promise<PageRow> {
+  const book = await requireBook(bookName);
+  const ok = await setPageTags(book.id, pageNumber, tags);
+  if (!ok) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
+  const page = await getSinglePage(book.id, pageNumber);
+  if (!page) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
+  return page;
+}
+
+/** Re-runs OCR on a single page using its cached image; returns the new row. */
+export async function retranscribePageData(
+  bookName: string,
+  pageNumber: number,
+  model: string = DEFAULT_MODEL,
+): Promise<PageRow> {
+  const book = await requireBook(bookName);
+  const { imageData } = await getPageImageData(bookName, pageNumber);
+  if (!imageData) {
+    throw new NotFoundError(
+      `Page ${pageNumber} has no associated image (it may have been manually inserted).`,
+    );
+  }
+  const transcription = await transcribeSinglePageImage(imageData, model);
+  await updatePageTranscription(book.id, pageNumber, transcription);
+  const page = await getSinglePage(book.id, pageNumber);
+  if (!page) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
+  return page;
+}
+
+/** Inserts a blank page after the given number; returns the new page row. */
+export async function insertPageData(
+  bookName: string,
+  afterPageNumber: number,
+): Promise<PageRow> {
+  const book = await requireBook(bookName);
+  return insertPageAfter(book.id, afterPageNumber);
+}
+
+/** Deletes a page and renumbers the rest. */
+export async function deletePageData(
+  bookName: string,
+  pageNumber: number,
+): Promise<void> {
+  const book = await requireBook(bookName);
+  const ok = await deletePage(book.id, pageNumber);
+  if (!ok) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
 }
