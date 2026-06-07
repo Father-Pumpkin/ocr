@@ -22,7 +22,9 @@
     "test": "tsx --test scripts/test-render.ts",
     "typecheck:app": "tsc -p tsconfig.app.json",
     "reauth": "tsx scripts/reauth.ts",
-    "diagnose": "tsx scripts/diagnose-originals.ts"
+    "diagnose": "tsx scripts/diagnose-originals.ts",
+    "retranscribe-all": "tsx scripts/retranscribe-all.ts",
+    "process-batches": "tsx scripts/process-batches.ts"
   },
   "engines": {
     "node": ">=18.0.0"
