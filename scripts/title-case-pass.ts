@@ -20,8 +20,11 @@ const { recaseTitle } = await import('../src/core/ocr.js');
 const log = (m: string) => process.stderr.write(m + '\n');
 
 async function main(): Promise<void> {
+  // When re-running after a prior title pass, include edited pages so the
+  // already-recased title pages get re-processed to the new convention.
+  const includeEdited = process.env.TITLE_PASS_INCLUDE_EDITED === '1';
   const books = (await getAllBooks()).filter((b) => b.status === 'complete');
-  log(`Recasing ${books.length} book title(s)...`);
+  log(`Recasing ${books.length} book title(s)${includeEdited ? ' (incl. edited title pages)' : ''}...`);
 
   let titleChanges = 0;
   let pageChanges = 0;
@@ -29,7 +32,7 @@ async function main(): Promise<void> {
     const pages = await getPages(book.id);
     const titlePage = pages.find((p) => {
       const t = (p.transcription ?? '').trim();
-      return !p.has_illustration && !p.is_edited && t.length > 0 && t !== '[ILLUSTRATION]';
+      return !p.has_illustration && (includeEdited || !p.is_edited) && t.length > 0 && t !== '[ILLUSTRATION]';
     });
 
     let result;
