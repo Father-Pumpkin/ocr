@@ -76,6 +76,8 @@ export interface DatabaseAdapter {
   updateBookStatus(bookId: number, status: string, pageCount?: number): Promise<void>;
   /** Stores a book-level OCR quality verdict ('ok' | 'suspect' | 'bad') and note. */
   setBookQuality(bookId: number, quality: string, note: string | null): Promise<void>;
+  /** Updates a book's display title (preserved across re-transcription). */
+  setBookTitle(bookId: number, title: string): Promise<void>;
 
   // Pages
   upsertPage(bookId: number, pageNumber: number, transcription: string, batchCustomId?: string): Promise<void>;

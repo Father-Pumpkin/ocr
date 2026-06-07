@@ -25,7 +25,8 @@
     "diagnose": "tsx scripts/diagnose-originals.ts",
     "retranscribe-all": "tsx scripts/retranscribe-all.ts",
     "process-batches": "tsx scripts/process-batches.ts",
-    "grade-all": "tsx scripts/grade-all.ts"
+    "grade-all": "tsx scripts/grade-all.ts",
+    "title-case": "tsx scripts/title-case-pass.ts"
   },
   "engines": {
     "node": ">=18.0.0"

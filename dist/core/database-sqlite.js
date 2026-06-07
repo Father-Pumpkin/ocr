@@ -176,11 +176,14 @@ export class SqliteAdapter {
       INSERT INTO books (title, drive_file_id, drive_file_name, created_by)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(drive_file_id) DO UPDATE SET
-        title = excluded.title,
         drive_file_name = excluded.drive_file_name,
         updated_at = CURRENT_TIMESTAMP
     `).run(title, driveFileId, driveFileName, createdBy);
         return Promise.resolve(this.db.prepare('SELECT * FROM books WHERE drive_file_id = ?').get(driveFileId));
+    }
+    async setBookTitle(bookId, title) {
+        this.db.prepare('UPDATE books SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(title, bookId);
+        return Promise.resolve();
     }
     async getBookByDriveId(driveFileId) {
         return Promise.resolve(this.db.prepare('SELECT * FROM books WHERE drive_file_id = ?').get(driveFileId));

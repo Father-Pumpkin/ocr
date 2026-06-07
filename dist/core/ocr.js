@@ -150,6 +150,40 @@ export async function verifyTranscription(text) {
     }
 }
 // ---------------------------------------------------------------------------
+// Title recasing — proper Spanish sentence case
+// ---------------------------------------------------------------------------
+const TITLE_CASE_SYSTEM_PROMPT = `You recase Spanish children's book titles to correct Spanish capitalization (sentence case): capitalize ONLY the first word and proper nouns (character names, place names). Lowercase everything else — articles, prepositions, conjunctions, common nouns, adjectives, verbs. Preserve accents, ñ, and punctuation (¿ ¡ etc.).
+
+You are given the book title and optionally the OCR text of its title page.
+
+Respond with ONLY a JSON object and nothing else:
+{"title": "<the recased title>", "pageText": <the title-page text with ONLY the book's title recased the same way and every other character left exactly as given, OR null if the page text does not contain the title>}`;
+export async function recaseTitle(title, pageText) {
+    await throttleVerify();
+    const client = getAnthropicClient();
+    const user = pageText
+        ? `Title: ${title}\n\nTitle-page OCR text:\n${pageText}`
+        : `Title: ${title}\n\n(No title-page text provided.)`;
+    const response = await client.messages.create({
+        model: VERIFY_MODEL,
+        max_tokens: 1024,
+        system: TITLE_CASE_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: user }],
+    });
+    const block = response.content.find((b) => b.type === 'text');
+    const raw = block ? block.text : '';
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match)
+        return { title, pageText: null };
+    try {
+        const parsed = JSON.parse(match[0]);
+        return { title: (parsed.title ?? title).trim() || title, pageText: parsed.pageText ?? null };
+    }
+    catch {
+        return { title, pageText: null };
+    }
+}
+// ---------------------------------------------------------------------------
 // Single-request OCR (whole book)
 // ---------------------------------------------------------------------------
 export async function transcribeBookPdf(bookId, bookTitle, pdfBuffer, overwrite, model = DEFAULT_MODEL) {

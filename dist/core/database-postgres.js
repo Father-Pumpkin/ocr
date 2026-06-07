@@ -140,12 +140,14 @@ export class PostgresAdapter {
       INSERT INTO books (title, drive_file_id, drive_file_name, created_by)
       VALUES (${title}, ${driveFileId}, ${driveFileName}, ${createdBy})
       ON CONFLICT(drive_file_id) DO UPDATE SET
-        title = EXCLUDED.title,
         drive_file_name = EXCLUDED.drive_file_name,
         updated_at = NOW()
       RETURNING *
     `;
         return coerceBook(rows[0]);
+    }
+    async setBookTitle(bookId, title) {
+        await this.sql `UPDATE books SET title = ${title}, updated_at = NOW() WHERE id = ${bookId}`;
     }
     async getBookByDriveId(driveFileId) {
         const rows = await this.sql `
