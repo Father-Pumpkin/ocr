@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { upsertPage, updateBookStatus, hasExistingTranscription, getBatchJob, updateBatchJobStatus, } from './database.js';
+import { upsertPage, updatePageTranscription, updateBookStatus, hasExistingTranscription, getBatchJob, updateBatchJobStatus, } from './database.js';
 export const DEFAULT_MODEL = 'claude-sonnet-4-6';
 export const AVAILABLE_MODELS = [
     'claude-sonnet-4-6',
@@ -341,4 +341,60 @@ export async function checkAndProcessBatch(batchId) {
         processedCount,
         summary: `Batch complete. Processed ${processedCount} page(s).${errorSummary}`,
     };
+}
+export async function createPageImageBatch(items, model = DEFAULT_MODEL) {
+    const client = getAnthropicClient();
+    const requests = items.map((it) => ({
+        custom_id: `page-${it.bookId}-${it.pageNumber}`,
+        params: {
+            model,
+            max_tokens: MAX_TOKENS,
+            system: PAGE_SYSTEM_PROMPT,
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: it.imageBase64 } },
+                        { type: 'text', text: 'Transcribe this page.' },
+                    ],
+                },
+            ],
+        },
+    }));
+    const batch = await client.messages.batches.create({ requests });
+    return batch.id;
+}
+export async function processPageImageBatch(batchId) {
+    const client = getAnthropicClient();
+    const batch = await client.messages.batches.retrieve(batchId);
+    if (batch.processing_status !== 'ended') {
+        return { status: batch.processing_status, cleared: 0, stillSuspect: 0, errored: 0 };
+    }
+    const { verifyPageById } = await import('./quality.js');
+    let cleared = 0;
+    let stillSuspect = 0;
+    let errored = 0;
+    for await (const result of await client.messages.batches.results(batchId)) {
+        const m = result.custom_id.match(/^page-(\d+)-(\d+)$/);
+        if (!m) {
+            errored++;
+            continue;
+        }
+        const bookId = parseInt(m[1], 10);
+        const pageNumber = parseInt(m[2], 10);
+        if (result.result.type === 'succeeded') {
+            const tb = result.result.message.content.find((b) => b.type === 'text');
+            const text = (tb ? tb.text.trim() : '') || '[ILLUSTRATION]';
+            await updatePageTranscription(bookId, pageNumber, text, false);
+            const updated = await verifyPageById(bookId, pageNumber);
+            if (updated && updated.ocr_quality === 'suspect')
+                stillSuspect++;
+            else
+                cleared++;
+        }
+        else {
+            errored++;
+        }
+    }
+    return { status: 'ended', cleared, stillSuspect, errored };
 }
