@@ -152,7 +152,12 @@ export async function verifyTranscription(text) {
 // ---------------------------------------------------------------------------
 // Title recasing — proper Spanish sentence case
 // ---------------------------------------------------------------------------
-const TITLE_CASE_SYSTEM_PROMPT = `You recase Spanish children's book titles to correct Spanish capitalization (sentence case): capitalize ONLY the first word and proper nouns (character names, place names). Lowercase everything else — articles, prepositions, conjunctions, common nouns, adjectives, verbs. Preserve accents, ñ, and punctuation (¿ ¡ etc.).
+const TITLE_CASE_SYSTEM_PROMPT = `You recase Spanish book titles to Spanish title case. Capitalize the first word and every CONTENT word — nouns, verbs, adjectives, adverbs, pronouns, and proper nouns. Keep FUNCTION words lowercase: articles (el, la, los, las, un, una, unos, unas), prepositions (de, a, en, con, por, para, sin, sobre, entre, hacia, hasta, desde, tras), and conjunctions (y, e, o, u, ni, que, pero) — EXCEPT when a function word is the first word of the title, which is always capitalized. Preserve accents, ñ, and punctuation (¿ ¡) exactly.
+
+Examples:
+- "el día de todo al revés" → "El Día de Todo al Revés"
+- "aitor tiene dos mamás" → "Aitor Tiene Dos Mamás"
+- "cebollino y pimentón" → "Cebollino y Pimentón"
 
 You are given the book title and optionally the OCR text of its title page.
 
