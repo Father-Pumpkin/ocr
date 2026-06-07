@@ -30,6 +30,7 @@ export async function updatePageTranscription(bookId: number, pageNumber: number
 export async function getPages(bookId: number, pageStart?: number, pageEnd?: number) { return (await getAdapter()).getPages(bookId, pageStart, pageEnd); }
 export async function getPageByCustomId(id: string) { return (await getAdapter()).getPageByCustomId(id); }
 export async function setPageTags(bookId: number, pageNumber: number, tags: string[]) { return (await getAdapter()).setPageTags(bookId, pageNumber, tags); }
+export async function setPageQuality(bookId: number, pageNumber: number, quality: string, reason: string | null) { return (await getAdapter()).setPageQuality(bookId, pageNumber, quality, reason); }
 export async function hasExistingTranscription(bookId: number, pageNumber: number) { return (await getAdapter()).hasExistingTranscription(bookId, pageNumber); }
 export async function createBatchJob(batchId: string, bookIds: number[]) { return (await getAdapter()).createBatchJob(batchId, bookIds); }
 export async function getBatchJob(batchId: string) { return (await getAdapter()).getBatchJob(batchId); }

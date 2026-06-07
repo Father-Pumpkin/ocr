@@ -78,6 +78,15 @@ export const api = {
       body: JSON.stringify({ model }),
     }),
 
+  verifyPage: (name: string, n: number) =>
+    request<{ page: PageRow }>(`/api/books/${enc(name)}/pages/${n}/verify`, { method: 'POST' }),
+
+  verifyBook: (name: string) =>
+    request<{ total: number; flagged: number; pages: PageRow[] }>(
+      `/api/books/${enc(name)}/verify`,
+      { method: 'POST' },
+    ),
+
   insertPage: (name: string, afterPageNumber: number) =>
     request<{ page: PageRow }>(`/api/books/${enc(name)}/pages`, {
       method: 'POST',

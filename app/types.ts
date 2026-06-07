@@ -19,6 +19,9 @@ export interface PageRow {
   transcription: string | null;
   /** First machine OCR result, preserved for research (read-only). */
   original_transcription: string | null;
+  /** Last quality-check verdict: null (unchecked) | 'ok' | 'suspect'. */
+  ocr_quality: string | null;
+  ocr_quality_reason: string | null;
   has_illustration: boolean;
   is_edited: boolean;
   status: string;

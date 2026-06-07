@@ -17,6 +17,10 @@ export interface PageRow {
   transcription: string | null;
   /** First machine OCR result, preserved for research. Never overwritten by manual edits. Null for pre-migration edited pages. */
   original_transcription: string | null;
+  /** Last OCR quality-check verdict: null (unchecked) | 'ok' | 'suspect'. Cleared when the transcription changes. */
+  ocr_quality: string | null;
+  /** When ocr_quality is 'suspect', a short reason from the proofreader. */
+  ocr_quality_reason: string | null;
   has_illustration: boolean;
   is_edited: boolean;
   status: string;
@@ -74,6 +78,8 @@ export interface DatabaseAdapter {
   getPages(bookId: number, pageStart?: number, pageEnd?: number): Promise<PageRow[]>;
   getPageByCustomId(batchCustomId: string): Promise<PageRow | undefined>;
   setPageTags(bookId: number, pageNumber: number, tags: string[]): Promise<boolean>;
+  /** Stores an OCR quality verdict ('ok' | 'suspect') and reason for a page. */
+  setPageQuality(bookId: number, pageNumber: number, quality: string, reason: string | null): Promise<boolean>;
   hasExistingTranscription(bookId: number, pageNumber: number): Promise<boolean>;
 
   // Batch jobs

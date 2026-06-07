@@ -26,6 +26,7 @@ export async function updatePageTranscription(bookId, pageNumber, transcription,
 export async function getPages(bookId, pageStart, pageEnd) { return (await getAdapter()).getPages(bookId, pageStart, pageEnd); }
 export async function getPageByCustomId(id) { return (await getAdapter()).getPageByCustomId(id); }
 export async function setPageTags(bookId, pageNumber, tags) { return (await getAdapter()).setPageTags(bookId, pageNumber, tags); }
+export async function setPageQuality(bookId, pageNumber, quality, reason) { return (await getAdapter()).setPageQuality(bookId, pageNumber, quality, reason); }
 export async function hasExistingTranscription(bookId, pageNumber) { return (await getAdapter()).hasExistingTranscription(bookId, pageNumber); }
 export async function createBatchJob(batchId, bookIds) { return (await getAdapter()).createBatchJob(batchId, bookIds); }
 export async function getBatchJob(batchId) { return (await getAdapter()).getBatchJob(batchId); }

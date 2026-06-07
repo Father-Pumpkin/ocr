@@ -61,6 +61,8 @@ export class PostgresAdapter {
         page_number      INTEGER NOT NULL,
         transcription    TEXT,
         original_transcription TEXT,
+        ocr_quality      TEXT,
+        ocr_quality_reason TEXT,
         has_illustration BOOLEAN DEFAULT FALSE,
         is_edited        BOOLEAN DEFAULT FALSE,
         status           TEXT DEFAULT 'pending',
@@ -123,6 +125,9 @@ export class PostgresAdapter {
         // un-edited rows; edited rows keep NULL since their true original is gone.
         await this.sql `ALTER TABLE pages ADD COLUMN IF NOT EXISTS original_transcription TEXT`;
         await this.sql `UPDATE pages SET original_transcription = transcription WHERE original_transcription IS NULL AND is_edited = FALSE`;
+        // OCR quality-check verdict columns (additive)
+        await this.sql `ALTER TABLE pages ADD COLUMN IF NOT EXISTS ocr_quality TEXT`;
+        await this.sql `ALTER TABLE pages ADD COLUMN IF NOT EXISTS ocr_quality_reason TEXT`;
     }
     // ---- Book helpers ----
     async upsertBook(driveFileId, driveFileName, title) {
@@ -182,6 +187,8 @@ export class PostgresAdapter {
       ON CONFLICT(book_id, page_number) DO UPDATE SET
         transcription          = EXCLUDED.transcription,
         original_transcription = COALESCE(pages.original_transcription, EXCLUDED.transcription),
+        ocr_quality            = NULL,
+        ocr_quality_reason     = NULL,
         has_illustration       = EXCLUDED.has_illustration,
         status                 = EXCLUDED.status,
         batch_custom_id        = EXCLUDED.batch_custom_id,
@@ -192,13 +199,16 @@ export class PostgresAdapter {
         const result = markEdited
             ? await this.sql `
           UPDATE pages
-          SET transcription = ${transcription}, is_edited = TRUE, updated_at = NOW()
+          SET transcription = ${transcription}, is_edited = TRUE,
+              ocr_quality = NULL, ocr_quality_reason = NULL,
+              updated_at = NOW()
           WHERE book_id = ${bookId} AND page_number = ${pageNumber}
         `
             : await this.sql `
           UPDATE pages
           SET transcription = ${transcription}, is_edited = FALSE,
               original_transcription = COALESCE(original_transcription, ${transcription}),
+              ocr_quality = NULL, ocr_quality_reason = NULL,
               updated_at = NOW()
           WHERE book_id = ${bookId} AND page_number = ${pageNumber}
         `;
@@ -236,6 +246,13 @@ export class PostgresAdapter {
     async setPageTags(bookId, pageNumber, tags) {
         const result = await this.sql `
       UPDATE pages SET tags = ${this.sql.json(tags)}, updated_at = NOW()
+      WHERE book_id = ${bookId} AND page_number = ${pageNumber}
+    `;
+        return result.count > 0;
+    }
+    async setPageQuality(bookId, pageNumber, quality, reason) {
+        const result = await this.sql `
+      UPDATE pages SET ocr_quality = ${quality}, ocr_quality_reason = ${reason}
       WHERE book_id = ${bookId} AND page_number = ${pageNumber}
     `;
         return result.count > 0;

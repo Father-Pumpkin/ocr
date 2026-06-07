@@ -94,6 +94,48 @@ export async function transcribeSinglePageImage(imageBase64, model = DEFAULT_MOD
     return text || '[ILLUSTRATION]';
 }
 // ---------------------------------------------------------------------------
+// Quality check — a cheap, text-only proofreader pass
+// ---------------------------------------------------------------------------
+const VERIFY_MODEL = 'claude-sonnet-4-6';
+const VERIFY_SYSTEM_PROMPT = `You are proofreading OCR output from a scanned Spanish children's book. You are given ONLY the transcribed text (not the image). Decide whether it reads like a plausible passage from a published Spanish children's book, or whether it contains OCR errors: garbled words, nonsense character sequences, scrambled or broken grammar, or fragments that no published book would contain.
+
+Children's books legitimately contain very short lines, playful or invented words, onomatopoeia, repetition, and simple vocabulary — do NOT flag those. The single token "[ILLUSTRATION]" is valid. Only flag text that is clearly garbled or incoherent as an OCR failure.
+
+Respond with ONLY a JSON object and nothing else:
+{"ok": true} if it reads as plausible published text, or
+{"ok": false, "reason": "<one short, specific English sentence>"} if it looks like an OCR error.`;
+/**
+ * Text-only plausibility check on a page's transcription. Cheap (no image).
+ * Returns ok:true (with empty reason) for illustration/empty pages and on any
+ * parse failure — we never flag on uncertainty.
+ */
+export async function verifyTranscription(text) {
+    const trimmed = (text ?? '').trim();
+    if (!trimmed || trimmed === '[ILLUSTRATION]')
+        return { ok: true, reason: '' };
+    const client = getAnthropicClient();
+    const response = await client.messages.create({
+        model: VERIFY_MODEL,
+        max_tokens: 256,
+        system: VERIFY_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: trimmed }],
+    });
+    const block = response.content.find((b) => b.type === 'text');
+    const raw = block ? block.text : '';
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match)
+        return { ok: true, reason: '' };
+    try {
+        const parsed = JSON.parse(match[0]);
+        if (parsed.ok === false)
+            return { ok: false, reason: parsed.reason?.trim() || 'Possible OCR error.' };
+        return { ok: true, reason: '' };
+    }
+    catch {
+        return { ok: true, reason: '' };
+    }
+}
+// ---------------------------------------------------------------------------
 // Single-request OCR (whole book)
 // ---------------------------------------------------------------------------
 export async function transcribeBookPdf(bookId, bookTitle, pdfBuffer, overwrite, model = DEFAULT_MODEL) {

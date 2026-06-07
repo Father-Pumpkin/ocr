@@ -10,6 +10,8 @@ interface SqlitePageRow {
   page_number: number;
   transcription: string | null;
   original_transcription: string | null;
+  ocr_quality: string | null;
+  ocr_quality_reason: string | null;
   has_illustration: number;
   is_edited: number;
   status: string;
@@ -66,6 +68,8 @@ export class SqliteAdapter implements DatabaseAdapter {
         page_number      INTEGER NOT NULL,
         transcription    TEXT,
         original_transcription TEXT,
+        ocr_quality      TEXT,
+        ocr_quality_reason TEXT,
         has_illustration BOOLEAN DEFAULT FALSE,
         is_edited        BOOLEAN DEFAULT FALSE,
         status           TEXT DEFAULT 'pending',
@@ -163,6 +167,18 @@ export class SqliteAdapter implements DatabaseAdapter {
     } catch {
       // Best-effort backfill
     }
+
+    // OCR quality-check verdict columns
+    try {
+      this.db.exec(`ALTER TABLE pages ADD COLUMN ocr_quality TEXT`);
+    } catch {
+      // Column already exists — no-op
+    }
+    try {
+      this.db.exec(`ALTER TABLE pages ADD COLUMN ocr_quality_reason TEXT`);
+    } catch {
+      // Column already exists — no-op
+    }
   }
 
   // ---- Book helpers ----
@@ -227,6 +243,8 @@ export class SqliteAdapter implements DatabaseAdapter {
       ON CONFLICT(book_id, page_number) DO UPDATE SET
         transcription          = excluded.transcription,
         original_transcription = COALESCE(original_transcription, excluded.transcription),
+        ocr_quality            = NULL,
+        ocr_quality_reason     = NULL,
         has_illustration       = excluded.has_illustration,
         status                 = excluded.status,
         batch_custom_id        = excluded.batch_custom_id,
@@ -240,13 +258,16 @@ export class SqliteAdapter implements DatabaseAdapter {
     const result = markEdited
       ? this.db.prepare(`
           UPDATE pages
-          SET transcription = ?, is_edited = 1, updated_at = CURRENT_TIMESTAMP
+          SET transcription = ?, is_edited = 1,
+              ocr_quality = NULL, ocr_quality_reason = NULL,
+              updated_at = CURRENT_TIMESTAMP
           WHERE book_id = ? AND page_number = ?
         `).run(transcription, bookId, pageNumber)
       : this.db.prepare(`
           UPDATE pages
           SET transcription = ?, is_edited = 0,
               original_transcription = COALESCE(original_transcription, ?),
+              ocr_quality = NULL, ocr_quality_reason = NULL,
               updated_at = CURRENT_TIMESTAMP
           WHERE book_id = ? AND page_number = ?
         `).run(transcription, transcription, bookId, pageNumber);
@@ -285,6 +306,14 @@ export class SqliteAdapter implements DatabaseAdapter {
       UPDATE pages SET tags = ?, updated_at = CURRENT_TIMESTAMP
       WHERE book_id = ? AND page_number = ?
     `).run(JSON.stringify(tags), bookId, pageNumber);
+    return Promise.resolve(result.changes > 0);
+  }
+
+  async setPageQuality(bookId: number, pageNumber: number, quality: string, reason: string | null): Promise<boolean> {
+    const result = this.db.prepare(`
+      UPDATE pages SET ocr_quality = ?, ocr_quality_reason = ?
+      WHERE book_id = ? AND page_number = ?
+    `).run(quality, reason, bookId, pageNumber);
     return Promise.resolve(result.changes > 0);
   }
 

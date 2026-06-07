@@ -41,6 +41,7 @@ export function PageEditor() {
   const [inserting, setInserting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const page = useMemo(
@@ -101,7 +102,7 @@ export function PageEditor() {
     navigate(to);
   }
 
-  const busy = saving || retranscribing || inserting || deleting || uploading;
+  const busy = saving || retranscribing || inserting || deleting || uploading || checking;
 
   async function onSave() {
     setSaving(true);
@@ -134,6 +135,19 @@ export function PageEditor() {
       setActionError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setRetranscribing(false);
+    }
+  }
+
+  async function onCheckQuality() {
+    setChecking(true);
+    setActionError(null);
+    try {
+      const { page: updated } = await api.verifyPage(name, pageNumber);
+      applyUpdatedPage(updated);
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -220,6 +234,14 @@ export function PageEditor() {
           </PagerButton>
         </div>
       </div>
+
+      {page.ocr_quality === 'suspect' && (
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="font-medium">⚠ This transcription looks suspect.</span>{' '}
+          {page.ocr_quality_reason}{' '}
+          Consider re-transcribing with a stronger model (e.g. Opus) using the picker below.
+        </div>
+      )}
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* Image */}
@@ -329,6 +351,15 @@ export function PageEditor() {
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
+            <button
+              onClick={onCheckQuality}
+              disabled={busy}
+              title="Cheap Sonnet proofreader check on this page"
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            >
+              {checking ? 'Checking…' : 'Check quality'}
+            </button>
+            {page.ocr_quality === 'ok' && <span className="text-xs text-emerald-600">✓ checked</span>}
             {page.is_edited && <span className="text-xs text-slate-400">edited</span>}
           </div>
 

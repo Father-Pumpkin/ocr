@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getBookPagesData, getPageImageData, setPageImageData, updatePageText, setPageTagsData, retranscribePageData, insertPageData, deletePageData, NotFoundError, AuthRequiredError, } from '../../core/book-service.js';
+import { getBookPagesData, getPageImageData, setPageImageData, updatePageText, setPageTagsData, retranscribePageData, insertPageData, deletePageData, verifyPageData, verifyBookData, NotFoundError, AuthRequiredError, } from '../../core/book-service.js';
 export const booksRouter = Router();
 /** Maps thrown errors to HTTP responses consistently across routes. */
 function handleError(err, res) {
@@ -99,6 +99,26 @@ booksRouter.post('/books/:name/pages/:n/retranscribe', async (req, res) => {
         const model = req.body?.model;
         const page = await retranscribePageData(bookName(req), pageNum(req), model);
         res.json({ page });
+    }
+    catch (err) {
+        handleError(err, res);
+    }
+});
+// POST /api/books/:name/pages/:n/verify — quality-check one page
+booksRouter.post('/books/:name/pages/:n/verify', async (req, res) => {
+    try {
+        const page = await verifyPageData(bookName(req), pageNum(req));
+        res.json({ page });
+    }
+    catch (err) {
+        handleError(err, res);
+    }
+});
+// POST /api/books/:name/verify — quality-check every page of a book
+booksRouter.post('/books/:name/verify', async (req, res) => {
+    try {
+        const result = await verifyBookData(bookName(req));
+        res.json(result);
     }
     catch (err) {
         handleError(err, res);

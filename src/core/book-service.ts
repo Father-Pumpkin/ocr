@@ -13,6 +13,7 @@ import {
   getPages,
   updatePageTranscription,
   setPageTags,
+  setPageQuality,
   getPageImage,
   setPageImage,
   cachePageImages,
@@ -24,7 +25,7 @@ import {
 } from './database.js';
 import { listPdfsInFolder, downloadPdf, type DriveFile } from './google-drive.js';
 import { renderAllPdfPages } from './render-pdf.js';
-import { transcribeSinglePageImage, DEFAULT_MODEL } from './ocr.js';
+import { transcribeSinglePageImage, verifyTranscription, DEFAULT_MODEL } from './ocr.js';
 
 export { getDriveAuthStatus, startDriveConnect, clearAuth } from './google-drive.js';
 
@@ -232,4 +233,50 @@ export async function setPageImageData(
   const raw = imageBase64.replace(/^data:[^;]+;base64,/, '').trim();
   if (!raw) throw new NotFoundError('Image data is empty.');
   await setPageImage(book.id, pageNumber, raw);
+}
+
+// ---------------------------------------------------------------------------
+// OCR quality check — cheap text-only proofreader pass
+// ---------------------------------------------------------------------------
+
+/** Run async fn over items with bounded concurrency, preserving order. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const idx = next++;
+      results[idx] = await fn(items[idx]);
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
+async function verifyOnePage(bookId: number, page: PageRow): Promise<PageRow> {
+  const { ok, reason } = await verifyTranscription(page.transcription ?? '');
+  const quality = ok ? 'ok' : 'suspect';
+  const qReason = ok ? null : reason;
+  await setPageQuality(bookId, page.page_number, quality, qReason);
+  return { ...page, ocr_quality: quality, ocr_quality_reason: qReason };
+}
+
+/** Quality-check a single page's transcription; stores + returns the updated row. */
+export async function verifyPageData(bookName: string, pageNumber: number): Promise<PageRow> {
+  const book = await requireBook(bookName);
+  const page = await getSinglePage(book.id, pageNumber);
+  if (!page) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
+  return verifyOnePage(book.id, page);
+}
+
+/** Quality-check every page of a book (bounded concurrency); returns a summary. */
+export async function verifyBookData(
+  bookName: string,
+): Promise<{ total: number; flagged: number; pages: PageRow[] }> {
+  const book = await requireBook(bookName);
+  const pages = await getPages(book.id);
+  const checked = await mapLimit(pages, 5, (p) => verifyOnePage(book.id, p));
+  const flagged = checked.filter((p) => p.ocr_quality === 'suspect').length;
+  return { total: checked.length, flagged, pages: checked };
 }
