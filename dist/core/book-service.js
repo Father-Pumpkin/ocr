@@ -12,6 +12,19 @@ import { renderAllPdfPages } from './render-pdf.js';
 import { transcribeSinglePageImage, DEFAULT_MODEL } from './ocr.js';
 export { getDriveAuthStatus, startDriveConnect, clearAuth } from './google-drive.js';
 export { AuthRequiredError } from './google-drive.js';
+// A transcription that hasn't progressed in this long is treated as failed —
+// the job died (crash, error, un-checked batch) and will never complete.
+const TRANSCRIBING_STALE_MS = 24 * 60 * 60 * 1000;
+/** Surface a stuck 'transcribing' book as 'failed' (display only; non-destructive). */
+function withDerivedStatus(book) {
+    if (book.status !== 'transcribing')
+        return book;
+    const updated = Date.parse(book.updated_at);
+    if (!Number.isNaN(updated) && Date.now() - updated > TRANSCRIBING_STALE_MS) {
+        return { ...book, status: 'failed' };
+    }
+    return book;
+}
 /**
  * Returns the merged library view: every PDF in the Drive folder, joined with
  * the matching DB book row when available. Drive files we've never seen get a
@@ -26,18 +39,21 @@ export async function listLibrary() {
         listPdfsInFolder({ interactive: false }).catch(() => []),
     ]);
     if (driveFiles.length === 0)
-        return dbBooks;
+        return dbBooks.map(withDerivedStatus);
     const dbByDriveId = new Map(dbBooks.map((b) => [b.drive_file_id, b]));
-    return driveFiles.map((file) => dbByDriveId.get(file.id) ?? {
-        id: -1,
-        title: file.name.replace(/\.pdf$/i, ''),
-        drive_file_id: file.id,
-        drive_file_name: file.name,
-        page_count: null,
-        status: 'pending',
-        created_by: null,
-        created_at: '',
-        updated_at: '',
+    return driveFiles.map((file) => {
+        const db = dbByDriveId.get(file.id);
+        return db ? withDerivedStatus(db) : {
+            id: -1,
+            title: file.name.replace(/\.pdf$/i, ''),
+            drive_file_id: file.id,
+            drive_file_name: file.name,
+            page_count: null,
+            status: 'pending',
+            created_by: null,
+            created_at: '',
+            updated_at: '',
+        };
     });
 }
 /**

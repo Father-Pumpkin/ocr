@@ -21,7 +21,8 @@
     "dev:app": "concurrently -k -n server,vite -c blue,magenta \"npm:dev:server\" \"vite\"",
     "test": "tsx --test scripts/test-render.ts",
     "typecheck:app": "tsc -p tsconfig.app.json",
-    "reauth": "tsx scripts/reauth.ts"
+    "reauth": "tsx scripts/reauth.ts",
+    "diagnose": "tsx scripts/diagnose-originals.ts"
   },
   "engines": {
     "node": ">=18.0.0"
