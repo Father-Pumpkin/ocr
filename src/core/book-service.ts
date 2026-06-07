@@ -25,6 +25,8 @@ import { listPdfsInFolder, downloadPdf, type DriveFile } from './google-drive.js
 import { renderAllPdfPages } from './render-pdf.js';
 import { transcribeSinglePageImage, DEFAULT_MODEL } from './ocr.js';
 
+export { getDriveAuthStatus, startDriveConnect, clearAuth } from './google-drive.js';
+
 export type {
   BookRow,
   PageRow,
@@ -44,7 +46,9 @@ export { AuthRequiredError } from './google-drive.js';
 export async function listLibrary(): Promise<BookRow[]> {
   const [dbBooks, driveFiles] = await Promise.all([
     getAllBooks(),
-    listPdfsInFolder().catch(() => [] as DriveFile[]),
+    // Never trigger an interactive OAuth popup just to render the library —
+    // fall back to DB-only if Drive isn't connected.
+    listPdfsInFolder({ interactive: false }).catch(() => [] as DriveFile[]),
   ]);
 
   if (driveFiles.length === 0) return dbBooks;
@@ -123,7 +127,7 @@ export async function getPageImageData(
   if (await hasAnyPageImage(book.id)) return { imageData: null, driveUrl };
 
   // Full miss — render the whole PDF once and cache.
-  const pdfBuffer = await downloadPdf(book.drive_file_id);
+  const pdfBuffer = await downloadPdf(book.drive_file_id, { interactive: false });
   const images = await renderAllPdfPages(pdfBuffer, 1.0);
   await cachePageImages(book.id, images.map((imageData, i) => ({ pageNumber: i + 1, imageData })));
   return { imageData: images[pageNumber - 1] ?? null, driveUrl };

@@ -1,6 +1,7 @@
 import express, { type Express } from 'express';
 import { libraryRouter } from './routes/library.js';
 import { booksRouter } from './routes/books.js';
+import { authRouter } from './routes/auth.js';
 
 /**
  * Starts the local HTTP API server that the web app (and any future CLI
@@ -12,6 +13,7 @@ export async function createHttpServer(port: number): Promise<Express> {
   app.use(express.json({ limit: '50mb' }));
 
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
+  app.use('/api', authRouter);
   app.use('/api', libraryRouter);
   app.use('/api', booksRouter);
 

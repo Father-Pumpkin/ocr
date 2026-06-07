@@ -39,8 +39,18 @@ const enc = encodeURIComponent;
 
 export { ApiError };
 
+export interface DriveStatus {
+  connected: boolean;
+  connecting: boolean;
+  reason?: string;
+}
+
 export const api = {
   getLibrary: () => request<{ books: BookRow[] }>('/api/library'),
+
+  getDriveStatus: () => request<DriveStatus>('/api/auth/drive/status'),
+  connectDrive: () => request<{ started: boolean }>('/api/auth/drive/connect', { method: 'POST' }),
+  disconnectDrive: () => request<{ connected: boolean }>('/api/auth/drive/disconnect', { method: 'POST' }),
 
   getBookPages: (name: string) =>
     request<{ book: BookRow; pages: PageRow[] }>(`/api/books/${enc(name)}/pages`),

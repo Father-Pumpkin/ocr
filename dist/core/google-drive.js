@@ -114,6 +114,10 @@ async function runLocalOAuthServer(oAuth2Client) {
 // Public auth interface
 // ---------------------------------------------------------------------------
 let authenticatedClient = null;
+// Tracks an in-progress interactive connect (browser OAuth) so the web UI can
+// poll status without launching duplicate flows.
+let connectInFlight = null;
+let lastConnectError = null;
 /**
  * Clears the stored OAuth token and resets the in-memory client, forcing
  * re-authentication on the next Drive call. Use the clear_auth MCP tool.
@@ -124,7 +128,8 @@ export function clearAuth() {
     if (fs.existsSync(tokenPath))
         fs.unlinkSync(tokenPath);
 }
-export async function authenticate() {
+export async function authenticate(opts = {}) {
+    const interactive = opts.interactive ?? true;
     if (authenticatedClient)
         return authenticatedClient;
     const oAuth2Client = createOAuth2Client();
@@ -143,24 +148,70 @@ export async function authenticate() {
             return authenticatedClient;
         }
         catch (err) {
+            // Token present but unusable (e.g. refresh token revoked). In
+            // non-interactive mode (web status/library) never open a browser —
+            // surface it so the UI can prompt for an explicit reconnect.
+            if (!interactive) {
+                throw new AuthRequiredError(`Google Drive token is invalid or expired: ${err instanceof Error ? err.message : String(err)}`);
+            }
             process.stderr.write(`[OCR MCP] Stored token invalid, re-authenticating: ${err}\n`);
             fs.unlinkSync(tokenPath);
         }
     }
-    // No valid token — run the browser OAuth flow
+    else if (!interactive) {
+        throw new AuthRequiredError('Google Drive is not connected.');
+    }
+    // No valid token — run the browser OAuth flow (interactive callers only)
     try {
         await runLocalOAuthServer(oAuth2Client);
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        throw new AuthRequiredError(`Google authorization failed or timed out: ${message}\n\n` +
-            `Run the clear_auth tool and try again to start a fresh login.`);
+        throw new AuthRequiredError(`Google authorization failed or timed out: ${message}`);
     }
     authenticatedClient = oAuth2Client;
     return authenticatedClient;
 }
-export async function listPdfsInFolder() {
-    const auth = await authenticate();
+/**
+ * Starts an interactive Drive connect (browser OAuth) in the background without
+ * blocking the caller. The web UI calls this, then polls getDriveAuthStatus().
+ * Returns { started: false } if a connect is already in flight.
+ */
+export function startDriveConnect() {
+    if (connectInFlight)
+        return { started: false };
+    lastConnectError = null;
+    clearAuth(); // force a fresh login + account picker
+    connectInFlight = authenticate({ interactive: true })
+        .then(() => undefined)
+        .catch((err) => {
+        lastConnectError = err instanceof Error ? err.message : String(err);
+    })
+        .finally(() => {
+        connectInFlight = null;
+    });
+    return { started: true };
+}
+/**
+ * Non-interactive Drive auth status for the web UI. Never opens a browser.
+ */
+export async function getDriveAuthStatus() {
+    if (connectInFlight)
+        return { connected: false, connecting: true };
+    try {
+        await authenticate({ interactive: false });
+        return { connected: true, connecting: false };
+    }
+    catch (err) {
+        return {
+            connected: false,
+            connecting: false,
+            reason: lastConnectError ?? (err instanceof Error ? err.message : String(err)),
+        };
+    }
+}
+export async function listPdfsInFolder(opts = {}) {
+    const auth = await authenticate(opts);
     const drive = google.drive({ version: 'v3', auth });
     const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
     if (!folderId) {
@@ -193,8 +244,8 @@ export async function listPdfsInFolder() {
     return files.sort((a, b) => a.name.localeCompare(b.name));
 }
 const DOWNLOAD_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes per file
-export async function downloadPdf(fileId) {
-    const auth = await authenticate();
+export async function downloadPdf(fileId, opts = {}) {
+    const auth = await authenticate(opts);
     const drive = google.drive({ version: 'v3', auth });
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error(`Download timed out after 2 minutes (file: ${fileId})`)), DOWNLOAD_TIMEOUT_MS));
     const download = drive.files.get({ fileId, alt: 'media', supportsAllDrives: true }, { responseType: 'arraybuffer' });

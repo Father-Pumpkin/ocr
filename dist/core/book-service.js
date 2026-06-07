@@ -10,6 +10,7 @@ import { getAllBooks, getBookByName, getPages, updatePageTranscription, setPageT
 import { listPdfsInFolder, downloadPdf } from './google-drive.js';
 import { renderAllPdfPages } from './render-pdf.js';
 import { transcribeSinglePageImage, DEFAULT_MODEL } from './ocr.js';
+export { getDriveAuthStatus, startDriveConnect, clearAuth } from './google-drive.js';
 export { AuthRequiredError } from './google-drive.js';
 /**
  * Returns the merged library view: every PDF in the Drive folder, joined with
@@ -20,7 +21,9 @@ export { AuthRequiredError } from './google-drive.js';
 export async function listLibrary() {
     const [dbBooks, driveFiles] = await Promise.all([
         getAllBooks(),
-        listPdfsInFolder().catch(() => []),
+        // Never trigger an interactive OAuth popup just to render the library —
+        // fall back to DB-only if Drive isn't connected.
+        listPdfsInFolder({ interactive: false }).catch(() => []),
     ]);
     if (driveFiles.length === 0)
         return dbBooks;
@@ -86,7 +89,7 @@ export async function getPageImageData(bookName, pageNumber) {
     if (await hasAnyPageImage(book.id))
         return { imageData: null, driveUrl };
     // Full miss — render the whole PDF once and cache.
-    const pdfBuffer = await downloadPdf(book.drive_file_id);
+    const pdfBuffer = await downloadPdf(book.drive_file_id, { interactive: false });
     const images = await renderAllPdfPages(pdfBuffer, 1.0);
     await cachePageImages(book.id, images.map((imageData, i) => ({ pageNumber: i + 1, imageData })));
     return { imageData: images[pageNumber - 1] ?? null, driveUrl };
