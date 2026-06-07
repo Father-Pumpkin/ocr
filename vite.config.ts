@@ -1,12 +1,13 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'node:path';
 
 const API_PORT = Number(process.env.OCR_API_PORT ?? 5180);
 
 export default defineConfig({
   root: 'app',
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   build: {
     outDir: resolve(__dirname, 'app/dist'),
     emptyOutDir: true,
