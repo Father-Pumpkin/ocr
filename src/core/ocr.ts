@@ -137,6 +137,19 @@ export interface VerifyResult {
   reason: string;
 }
 
+// The non-batch Messages API is rate-limited per minute (tier-dependent). Pace
+// the verifier so a bulk grade stays under the limit. A single call after idle
+// waits 0ms; sustained calls are spaced ~43/min, leaving headroom under 50/min.
+const VERIFY_MIN_INTERVAL_MS = 1400;
+let verifyNextSlot = 0;
+async function throttleVerify(): Promise<void> {
+  const now = Date.now();
+  const slot = Math.max(now, verifyNextSlot);
+  verifyNextSlot = slot + VERIFY_MIN_INTERVAL_MS;
+  const wait = slot - now;
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+}
+
 /**
  * Text-only plausibility check on a page's transcription. Cheap (no image).
  * Returns ok:true (with empty reason) for illustration/empty pages and on any
@@ -146,6 +159,7 @@ export async function verifyTranscription(text: string): Promise<VerifyResult> {
   const trimmed = (text ?? '').trim();
   if (!trimmed || trimmed === '[ILLUSTRATION]') return { ok: true, reason: '' };
 
+  await throttleVerify();
   const client = getAnthropicClient();
   const response = await client.messages.create({
     model: VERIFY_MODEL,

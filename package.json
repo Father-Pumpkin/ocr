@@ -24,7 +24,8 @@
     "reauth": "tsx scripts/reauth.ts",
     "diagnose": "tsx scripts/diagnose-originals.ts",
     "retranscribe-all": "tsx scripts/retranscribe-all.ts",
-    "process-batches": "tsx scripts/process-batches.ts"
+    "process-batches": "tsx scripts/process-batches.ts",
+    "grade-all": "tsx scripts/grade-all.ts"
   },
   "engines": {
     "node": ">=18.0.0"
