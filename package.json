@@ -26,7 +26,8 @@
     "retranscribe-all": "tsx scripts/retranscribe-all.ts",
     "process-batches": "tsx scripts/process-batches.ts",
     "grade-all": "tsx scripts/grade-all.ts",
-    "title-case": "tsx scripts/title-case-pass.ts"
+    "title-case": "tsx scripts/title-case-pass.ts",
+    "reocr-suspects": "tsx scripts/reocr-suspects.ts"
   },
   "engines": {
     "node": ">=18.0.0"
