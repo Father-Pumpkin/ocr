@@ -231,6 +231,15 @@ export async function transcribeBookPdf(
 
   await updateBookStatus(bookId, 'complete', pages.length);
 
+  // Auto quality-check the freshly transcribed book (best-effort; dynamic import
+  // avoids a static cycle with quality.ts → ocr.ts).
+  try {
+    const { verifyBookById } = await import('./quality.js');
+    await verifyBookById(bookId);
+  } catch (err) {
+    process.stderr.write(`[OCR MCP] Quality check failed for book ${bookId}: ${err}\n`);
+  }
+
   return { transcribed, skipped, pageCount: pages.length };
 }
 
@@ -348,6 +357,14 @@ export async function checkAndProcessBatch(batchId: string): Promise<{
   }
 
   await updateBatchJobStatus(batchId, 'complete');
+
+  // Auto quality-check each book from the batch (best-effort).
+  try {
+    const { verifyBookById } = await import('./quality.js');
+    for (const bookId of bookIds) await verifyBookById(bookId);
+  } catch (err) {
+    process.stderr.write(`[OCR MCP] Quality check failed after batch ${batchId}: ${err}\n`);
+  }
 
   const errorSummary = errors.length > 0 ? `\nErrors:\n${errors.join('\n')}` : '';
 

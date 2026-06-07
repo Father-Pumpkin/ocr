@@ -13,7 +13,6 @@ import {
   getPages,
   updatePageTranscription,
   setPageTags,
-  setPageQuality,
   getPageImage,
   setPageImage,
   cachePageImages,
@@ -25,7 +24,8 @@ import {
 } from './database.js';
 import { listPdfsInFolder, downloadPdf, type DriveFile } from './google-drive.js';
 import { renderAllPdfPages } from './render-pdf.js';
-import { transcribeSinglePageImage, verifyTranscription, DEFAULT_MODEL } from './ocr.js';
+import { transcribeSinglePageImage, DEFAULT_MODEL } from './ocr.js';
+import { verifyBookById, verifyPageById } from './quality.js';
 
 export { getDriveAuthStatus, startDriveConnect, clearAuth } from './google-drive.js';
 
@@ -79,6 +79,8 @@ export async function listLibrary(): Promise<BookRow[]> {
       drive_file_name: file.name,
       page_count: null,
       status: 'pending',
+      ocr_quality: null,
+      ocr_quality_note: null,
       created_by: null,
       created_at: '',
       updated_at: '',
@@ -196,7 +198,8 @@ export async function retranscribePageData(
   const transcription = await transcribeSinglePageImage(imageData, model);
   // markEdited=false: this is a fresh machine transcription, not a manual edit.
   await updatePageTranscription(book.id, pageNumber, transcription, false);
-  const page = await getSinglePage(book.id, pageNumber);
+  // Auto-verify the fresh transcription (also refreshes the book-level verdict).
+  const page = await verifyPageById(book.id, pageNumber);
   if (!page) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
   return page;
 }
@@ -236,47 +239,21 @@ export async function setPageImageData(
 }
 
 // ---------------------------------------------------------------------------
-// OCR quality check — cheap text-only proofreader pass
+// OCR quality check — delegates to core/quality.ts (stores page + book verdicts)
 // ---------------------------------------------------------------------------
 
-/** Run async fn over items with bounded concurrency, preserving order. */
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  async function worker(): Promise<void> {
-    while (next < items.length) {
-      const idx = next++;
-      results[idx] = await fn(items[idx]);
-    }
-  }
-  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
-  await Promise.all(workers);
-  return results;
-}
-
-async function verifyOnePage(bookId: number, page: PageRow): Promise<PageRow> {
-  const { ok, reason } = await verifyTranscription(page.transcription ?? '');
-  const quality = ok ? 'ok' : 'suspect';
-  const qReason = ok ? null : reason;
-  await setPageQuality(bookId, page.page_number, quality, qReason);
-  return { ...page, ocr_quality: quality, ocr_quality_reason: qReason };
-}
-
-/** Quality-check a single page's transcription; stores + returns the updated row. */
+/** Quality-check a single page; stores page + book verdicts; returns the row. */
 export async function verifyPageData(bookName: string, pageNumber: number): Promise<PageRow> {
   const book = await requireBook(bookName);
-  const page = await getSinglePage(book.id, pageNumber);
+  const page = await verifyPageById(book.id, pageNumber);
   if (!page) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
-  return verifyOnePage(book.id, page);
+  return page;
 }
 
-/** Quality-check every page of a book (bounded concurrency); returns a summary. */
+/** Quality-check every page of a book; stores verdicts; returns a summary. */
 export async function verifyBookData(
   bookName: string,
-): Promise<{ total: number; flagged: number; pages: PageRow[] }> {
+): Promise<{ total: number; flagged: number; quality: string; note: string | null; pages: PageRow[] }> {
   const book = await requireBook(bookName);
-  const pages = await getPages(book.id);
-  const checked = await mapLimit(pages, 5, (p) => verifyOnePage(book.id, p));
-  const flagged = checked.filter((p) => p.ocr_quality === 'suspect').length;
-  return { total: checked.length, flagged, pages: checked };
+  return verifyBookById(book.id);
 }

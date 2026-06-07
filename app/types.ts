@@ -7,6 +7,9 @@ export interface BookRow {
   drive_file_name: string;
   page_count: number | null;
   status: string;
+  /** Book-level OCR quality verdict: null | 'ok' | 'suspect' | 'bad'. */
+  ocr_quality: string | null;
+  ocr_quality_note: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

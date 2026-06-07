@@ -9,6 +9,8 @@ interface PgBookRow {
   drive_file_name: string;
   page_count: number | null;
   status: string;
+  ocr_quality: string | null;
+  ocr_quality_note: string | null;
   created_by: string | null;
   created_at: Date;
   updated_at: Date;
@@ -121,6 +123,8 @@ export class PostgresAdapter implements DatabaseAdapter {
         drive_file_name TEXT NOT NULL,
         page_count      INTEGER,
         status          TEXT DEFAULT 'pending',
+        ocr_quality     TEXT,
+        ocr_quality_note TEXT,
         created_by      TEXT,
         created_at      TIMESTAMPTZ DEFAULT NOW(),
         updated_at      TIMESTAMPTZ DEFAULT NOW()
@@ -207,6 +211,8 @@ export class PostgresAdapter implements DatabaseAdapter {
     // OCR quality-check verdict columns (additive)
     await this.sql`ALTER TABLE pages ADD COLUMN IF NOT EXISTS ocr_quality TEXT`;
     await this.sql`ALTER TABLE pages ADD COLUMN IF NOT EXISTS ocr_quality_reason TEXT`;
+    await this.sql`ALTER TABLE books ADD COLUMN IF NOT EXISTS ocr_quality TEXT`;
+    await this.sql`ALTER TABLE books ADD COLUMN IF NOT EXISTS ocr_quality_note TEXT`;
   }
 
   // ---- Book helpers ----
@@ -258,6 +264,12 @@ export class PostgresAdapter implements DatabaseAdapter {
         WHERE id = ${bookId}
       `;
     }
+  }
+
+  async setBookQuality(bookId: number, quality: string, note: string | null): Promise<void> {
+    await this.sql`
+      UPDATE books SET ocr_quality = ${quality}, ocr_quality_note = ${note} WHERE id = ${bookId}
+    `;
   }
 
   // ---- Page helpers ----

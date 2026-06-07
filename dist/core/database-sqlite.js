@@ -31,6 +31,8 @@ export class SqliteAdapter {
         drive_file_name TEXT NOT NULL,
         page_count      INTEGER,
         status          TEXT DEFAULT 'pending',
+        ocr_quality     TEXT,
+        ocr_quality_note TEXT,
         created_by      TEXT,
         created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -153,6 +155,19 @@ export class SqliteAdapter {
         catch {
             // Column already exists — no-op
         }
+        // Book-level OCR quality verdict
+        try {
+            this.db.exec(`ALTER TABLE books ADD COLUMN ocr_quality TEXT`);
+        }
+        catch {
+            // Column already exists — no-op
+        }
+        try {
+            this.db.exec(`ALTER TABLE books ADD COLUMN ocr_quality_note TEXT`);
+        }
+        catch {
+            // Column already exists — no-op
+        }
     }
     // ---- Book helpers ----
     async upsertBook(driveFileId, driveFileName, title) {
@@ -187,6 +202,10 @@ export class SqliteAdapter {
         UPDATE books SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
       `).run(status, bookId);
         }
+        return Promise.resolve();
+    }
+    async setBookQuality(bookId, quality, note) {
+        this.db.prepare(`UPDATE books SET ocr_quality = ?, ocr_quality_note = ? WHERE id = ?`).run(quality, note, bookId);
         return Promise.resolve();
     }
     // ---- Page helpers ----

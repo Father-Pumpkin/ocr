@@ -37,6 +37,16 @@ export function Library() {
                 <span className="font-medium">{b.title}</span>
                 <span className="flex items-center gap-3 text-xs text-slate-500">
                   {b.page_count != null && <span>{b.page_count} pages</span>}
+                  {b.ocr_quality === 'bad' && (
+                    <span title={b.ocr_quality_note ?? ''} className="rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700">
+                      OCR: bad
+                    </span>
+                  )}
+                  {b.ocr_quality === 'suspect' && (
+                    <span title={b.ocr_quality_note ?? ''} className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700">
+                      OCR: check
+                    </span>
+                  )}
                   <StatusBadge status={b.status} />
                 </span>
               </div>

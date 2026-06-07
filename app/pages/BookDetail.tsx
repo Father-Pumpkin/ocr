@@ -43,6 +43,7 @@ export function BookDetail() {
     try {
       const r = await api.verifyBook(name);
       setPages(r.pages);
+      setBook((b) => (b ? { ...b, ocr_quality: r.quality, ocr_quality_note: r.note } : b));
       setCheckMsg(`Checked ${r.total} page${r.total === 1 ? '' : 's'} — ${r.flagged} flagged`);
     } catch (e) {
       setCheckMsg(`Check failed: ${e instanceof ApiError ? e.message : String(e)}`);
@@ -74,6 +75,21 @@ export function BookDetail() {
           </div>
         )}
       </div>
+
+      {book && book.ocr_quality === 'bad' && (
+        <div className="mb-4 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <span className="font-medium">Most pages look garbled.</span>{' '}
+          {book.ocr_quality_note}. You're likely better off re-transcribing the whole book on a
+          stronger model (Opus, or a batch run) rather than fixing it page-by-page.
+        </div>
+      )}
+      {book && book.ocr_quality === 'suspect' && (
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="font-medium">Some pages look suspect.</span>{' '}
+          {book.ocr_quality_note}. Open the flagged (⚠) pages and re-transcribe them with a stronger
+          model.
+        </div>
+      )}
 
       {error && <ErrorBox message={error} />}
       {notFound && (

@@ -49,6 +49,8 @@ export class PostgresAdapter {
         drive_file_name TEXT NOT NULL,
         page_count      INTEGER,
         status          TEXT DEFAULT 'pending',
+        ocr_quality     TEXT,
+        ocr_quality_note TEXT,
         created_by      TEXT,
         created_at      TIMESTAMPTZ DEFAULT NOW(),
         updated_at      TIMESTAMPTZ DEFAULT NOW()
@@ -128,6 +130,8 @@ export class PostgresAdapter {
         // OCR quality-check verdict columns (additive)
         await this.sql `ALTER TABLE pages ADD COLUMN IF NOT EXISTS ocr_quality TEXT`;
         await this.sql `ALTER TABLE pages ADD COLUMN IF NOT EXISTS ocr_quality_reason TEXT`;
+        await this.sql `ALTER TABLE books ADD COLUMN IF NOT EXISTS ocr_quality TEXT`;
+        await this.sql `ALTER TABLE books ADD COLUMN IF NOT EXISTS ocr_quality_note TEXT`;
     }
     // ---- Book helpers ----
     async upsertBook(driveFileId, driveFileName, title) {
@@ -174,6 +178,11 @@ export class PostgresAdapter {
         WHERE id = ${bookId}
       `;
         }
+    }
+    async setBookQuality(bookId, quality, note) {
+        await this.sql `
+      UPDATE books SET ocr_quality = ${quality}, ocr_quality_note = ${note} WHERE id = ${bookId}
+    `;
     }
     // ---- Page helpers ----
     async upsertPage(bookId, pageNumber, transcription, batchCustomId) {

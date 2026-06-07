@@ -82,7 +82,7 @@ export const api = {
     request<{ page: PageRow }>(`/api/books/${enc(name)}/pages/${n}/verify`, { method: 'POST' }),
 
   verifyBook: (name: string) =>
-    request<{ total: number; flagged: number; pages: PageRow[] }>(
+    request<{ total: number; flagged: number; quality: string; note: string | null; pages: PageRow[] }>(
       `/api/books/${enc(name)}/verify`,
       { method: 'POST' },
     ),

@@ -5,6 +5,10 @@ export interface BookRow {
   drive_file_name: string;
   page_count: number | null;
   status: string;
+  /** Book-level OCR quality verdict: null (unchecked) | 'ok' | 'suspect' | 'bad'. */
+  ocr_quality: string | null;
+  /** Human-readable note, e.g. "12 of 20 text pages flagged". */
+  ocr_quality_note: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -70,6 +74,8 @@ export interface DatabaseAdapter {
   getBookByName(name: string): Promise<BookRow | undefined>;
   getAllBooks(): Promise<BookRow[]>;
   updateBookStatus(bookId: number, status: string, pageCount?: number): Promise<void>;
+  /** Stores a book-level OCR quality verdict ('ok' | 'suspect' | 'bad') and note. */
+  setBookQuality(bookId: number, quality: string, note: string | null): Promise<void>;
 
   // Pages
   upsertPage(bookId: number, pageNumber: number, transcription: string, batchCustomId?: string): Promise<void>;

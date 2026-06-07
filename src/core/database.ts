@@ -25,6 +25,7 @@ export async function getBookByDriveId(id: string) { return (await getAdapter())
 export async function getBookByName(name: string) { return (await getAdapter()).getBookByName(name); }
 export async function upsertBook(driveFileId: string, driveFileName: string, title: string) { return (await getAdapter()).upsertBook(driveFileId, driveFileName, title); }
 export async function updateBookStatus(bookId: number, status: string, pageCount?: number) { return (await getAdapter()).updateBookStatus(bookId, status, pageCount); }
+export async function setBookQuality(bookId: number, quality: string, note: string | null) { return (await getAdapter()).setBookQuality(bookId, quality, note); }
 export async function upsertPage(bookId: number, pageNumber: number, transcription: string, batchCustomId?: string) { return (await getAdapter()).upsertPage(bookId, pageNumber, transcription, batchCustomId); }
 export async function updatePageTranscription(bookId: number, pageNumber: number, transcription: string, markEdited?: boolean) { return (await getAdapter()).updatePageTranscription(bookId, pageNumber, transcription, markEdited); }
 export async function getPages(bookId: number, pageStart?: number, pageEnd?: number) { return (await getAdapter()).getPages(bookId, pageStart, pageEnd); }
