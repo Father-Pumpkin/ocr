@@ -22,7 +22,7 @@ export async function getBookByName(name) { return (await getAdapter()).getBookB
 export async function upsertBook(driveFileId, driveFileName, title) { return (await getAdapter()).upsertBook(driveFileId, driveFileName, title); }
 export async function updateBookStatus(bookId, status, pageCount) { return (await getAdapter()).updateBookStatus(bookId, status, pageCount); }
 export async function upsertPage(bookId, pageNumber, transcription, batchCustomId) { return (await getAdapter()).upsertPage(bookId, pageNumber, transcription, batchCustomId); }
-export async function updatePageTranscription(bookId, pageNumber, transcription) { return (await getAdapter()).updatePageTranscription(bookId, pageNumber, transcription); }
+export async function updatePageTranscription(bookId, pageNumber, transcription, markEdited) { return (await getAdapter()).updatePageTranscription(bookId, pageNumber, transcription, markEdited); }
 export async function getPages(bookId, pageStart, pageEnd) { return (await getAdapter()).getPages(bookId, pageStart, pageEnd); }
 export async function getPageByCustomId(id) { return (await getAdapter()).getPageByCustomId(id); }
 export async function setPageTags(bookId, pageNumber, tags) { return (await getAdapter()).setPageTags(bookId, pageNumber, tags); }

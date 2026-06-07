@@ -17,6 +17,8 @@ export interface PageRow {
   book_id: number;
   page_number: number;
   transcription: string | null;
+  /** First machine OCR result, preserved for research (read-only). */
+  original_transcription: string | null;
   has_illustration: boolean;
   is_edited: boolean;
   status: string;

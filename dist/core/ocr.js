@@ -19,16 +19,27 @@ function getAnthropicClient() {
 // ---------------------------------------------------------------------------
 const SHARED_PREAMBLE = `You are transcribing pages from a scanned Spanish children's book.
 
-Each image shows a TWO-PAGE SPREAD of an open book. The LEFT physical page is on the left side of the image and the RIGHT physical page is on the right side, with the book's spine running vertically through the centre. Treat each physical page as a completely separate unit — transcribe the left page's text in full before moving to the right page. Never read across the spine as though text continues from one side to the other.
+LAYOUT — TWO-PAGE SPREAD WITH A CENTRAL GUTTER
+Each image is a photograph of an open book, so it shows a TWO-PAGE SPREAD: a LEFT physical page and a RIGHT physical page, divided by the book's GUTTER (the binding/spine) running vertically down the centre. Near the gutter the paper curves inward and is often shadowed or slightly warped, so characters there can look compressed or distorted.
+- Treat the left and right pages as two completely separate columns. Transcribe ALL of the left page first, then ALL of the right page.
+- NEVER read across the gutter as if a line continues from the left page onto the right page. The last word of a line on the left page does NOT join the first word of the corresponding line on the right page.
+- Do not let the gutter's curve or shadow make you drop, duplicate, merge, or invent characters. If a word runs into the binding, read it as carefully as you can and transcribe it on the page it belongs to.
 
-Transcribe the text EXACTLY as it is printed. Do not correct spelling, punctuation, accents, capitalisation, or grammar — even if something appears to be an error. Preserve the author's original wording verbatim.
+CAPITALIZATION — REPRODUCE IT EXACTLY
+Transcribe the case of every letter EXACTLY as printed, character by character. This is critical and a frequent source of errors:
+- If a word, line, or block is printed in ALL CAPITALS, transcribe it in ALL CAPITALS. Do NOT convert it to lowercase or Title Case.
+- If text is lowercase, keep it lowercase — even at the start of a sentence or line, if that is how it is printed.
+- Do NOT apply "standard" capitalization rules. Only capitalize what is actually capitalized in the image.
+- Preserve the case of accented and special characters exactly: Á É Í Ó Ú Ü Ñ / á é í ó ú ü ñ, and ¿ ¡.
 
-Additional rules:
-- Transcribe ONLY the printed story text intended to be read by the audience
-- DO NOT transcribe text that appears inside illustrations (signs, chalkboards, posters, labels, or any text that is part of the artwork)
-- Preserve line breaks exactly as they appear on each physical page
+VERBATIM TRANSCRIPTION
+Transcribe the text EXACTLY as printed. Do not correct spelling, punctuation, accents, capitalization, or grammar — even if something appears to be an error. Preserve the author's original wording verbatim, and keep line breaks exactly as they appear on each physical page.
+
+WHAT TO INCLUDE / EXCLUDE
+- Transcribe ONLY the printed story text intended to be read by the audience.
+- DO NOT transcribe text that appears inside illustrations (signs, chalkboards, posters, labels, or any text that is part of the artwork).
 - If a spread contains no story text (blank pages, endpapers, or a fully illustration-only spread), output exactly: [ILLUSTRATION]
-- Do not add commentary, translations, headings, or notes of any kind`;
+- Do not add commentary, translations, headings, or notes of any kind.`;
 // Used for whole-book PDF transcription — requires [PAGE N] block format
 const BOOK_SYSTEM_PROMPT = `${SHARED_PREAMBLE}
 

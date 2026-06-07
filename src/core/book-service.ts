@@ -14,6 +14,7 @@ import {
   updatePageTranscription,
   setPageTags,
   getPageImage,
+  setPageImage,
   cachePageImages,
   hasAnyPageImage,
   insertPageAfter,
@@ -175,7 +176,8 @@ export async function retranscribePageData(
     );
   }
   const transcription = await transcribeSinglePageImage(imageData, model);
-  await updatePageTranscription(book.id, pageNumber, transcription);
+  // markEdited=false: this is a fresh machine transcription, not a manual edit.
+  await updatePageTranscription(book.id, pageNumber, transcription, false);
   const page = await getSinglePage(book.id, pageNumber);
   if (!page) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
   return page;
@@ -198,4 +200,19 @@ export async function deletePageData(
   const book = await requireBook(bookName);
   const ok = await deletePage(book.id, pageNumber);
   if (!ok) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
+}
+
+/**
+ * Stores/replaces the cached image for a page. Accepts base64 with or without a
+ * data-URL prefix; stores raw base64 to match how getPageImageData returns it.
+ */
+export async function setPageImageData(
+  bookName: string,
+  pageNumber: number,
+  imageBase64: string,
+): Promise<void> {
+  const book = await requireBook(bookName);
+  const raw = imageBase64.replace(/^data:[^;]+;base64,/, '').trim();
+  if (!raw) throw new NotFoundError('Image data is empty.');
+  await setPageImage(book.id, pageNumber, raw);
 }

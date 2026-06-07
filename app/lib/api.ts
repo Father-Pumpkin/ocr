@@ -48,6 +48,8 @@ export interface DriveStatus {
 export const api = {
   getLibrary: () => request<{ books: BookRow[] }>('/api/library'),
 
+  getModels: () => request<{ models: string[]; default: string }>('/api/models'),
+
   getDriveStatus: () => request<DriveStatus>('/api/auth/drive/status'),
   connectDrive: () => request<{ started: boolean }>('/api/auth/drive/connect', { method: 'POST' }),
   disconnectDrive: () => request<{ connected: boolean }>('/api/auth/drive/disconnect', { method: 'POST' }),
@@ -57,6 +59,12 @@ export const api = {
 
   /** URL for a page's image — use directly as <img src>. */
   pageImageUrl: (name: string, n: number) => `/api/books/${enc(name)}/pages/${n}/image`,
+
+  setPageImage: (name: string, n: number, imageBase64: string) =>
+    request<{ ok: true }>(`/api/books/${enc(name)}/pages/${n}/image`, {
+      method: 'PUT',
+      body: JSON.stringify({ imageBase64 }),
+    }),
 
   updatePage: (name: string, n: number, body: { transcription?: string; tags?: string[] }) =>
     request<{ page: PageRow }>(`/api/books/${enc(name)}/pages/${n}`, {

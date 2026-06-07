@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { listLibrary } from '../../core/book-service.js';
+import { AVAILABLE_MODELS, DEFAULT_MODEL } from '../../core/ocr.js';
 
 export const libraryRouter = Router();
 
@@ -11,4 +12,9 @@ libraryRouter.get('/library', async (_req, res) => {
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: message });
   }
+});
+
+// GET /api/models — OCR models available for (re-)transcription
+libraryRouter.get('/models', (_req, res) => {
+  res.json({ models: AVAILABLE_MODELS, default: DEFAULT_MODEL });
 });

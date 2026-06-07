@@ -6,7 +6,7 @@
  * primitives directly. Tools that return formatted text strings stay where they
  * are; this module is for structured-data operations that any UI can consume.
  */
-import { getAllBooks, getBookByName, getPages, updatePageTranscription, setPageTags, getPageImage, cachePageImages, hasAnyPageImage, insertPageAfter, deletePage, } from './database.js';
+import { getAllBooks, getBookByName, getPages, updatePageTranscription, setPageTags, getPageImage, setPageImage, cachePageImages, hasAnyPageImage, insertPageAfter, deletePage, } from './database.js';
 import { listPdfsInFolder, downloadPdf } from './google-drive.js';
 import { renderAllPdfPages } from './render-pdf.js';
 import { transcribeSinglePageImage, DEFAULT_MODEL } from './ocr.js';
@@ -124,7 +124,8 @@ export async function retranscribePageData(bookName, pageNumber, model = DEFAULT
         throw new NotFoundError(`Page ${pageNumber} has no associated image (it may have been manually inserted).`);
     }
     const transcription = await transcribeSinglePageImage(imageData, model);
-    await updatePageTranscription(book.id, pageNumber, transcription);
+    // markEdited=false: this is a fresh machine transcription, not a manual edit.
+    await updatePageTranscription(book.id, pageNumber, transcription, false);
     const page = await getSinglePage(book.id, pageNumber);
     if (!page)
         throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
@@ -141,4 +142,15 @@ export async function deletePageData(bookName, pageNumber) {
     const ok = await deletePage(book.id, pageNumber);
     if (!ok)
         throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
+}
+/**
+ * Stores/replaces the cached image for a page. Accepts base64 with or without a
+ * data-URL prefix; stores raw base64 to match how getPageImageData returns it.
+ */
+export async function setPageImageData(bookName, pageNumber, imageBase64) {
+    const book = await requireBook(bookName);
+    const raw = imageBase64.replace(/^data:[^;]+;base64,/, '').trim();
+    if (!raw)
+        throw new NotFoundError('Image data is empty.');
+    await setPageImage(book.id, pageNumber, raw);
 }

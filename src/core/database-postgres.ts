@@ -19,6 +19,7 @@ interface PgPageRow {
   book_id: number;
   page_number: number;
   transcription: string | null;
+  original_transcription: string | null;
   has_illustration: boolean;
   is_edited: boolean;
   status: string;
@@ -130,6 +131,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         book_id          INTEGER NOT NULL REFERENCES books(id),
         page_number      INTEGER NOT NULL,
         transcription    TEXT,
+        original_transcription TEXT,
         has_illustration BOOLEAN DEFAULT FALSE,
         is_edited        BOOLEAN DEFAULT FALSE,
         status           TEXT DEFAULT 'pending',
@@ -191,6 +193,12 @@ export class PostgresAdapter implements DatabaseAdapter {
         UNIQUE(book_id, page_number)
       )
     `;
+
+    // Preserve the first OCR result for research. Additive migration for existing
+    // DBs (the CREATE above is a no-op when the table already exists). Backfill
+    // un-edited rows; edited rows keep NULL since their true original is gone.
+    await this.sql`ALTER TABLE pages ADD COLUMN IF NOT EXISTS original_transcription TEXT`;
+    await this.sql`UPDATE pages SET original_transcription = transcription WHERE original_transcription IS NULL AND is_edited = FALSE`;
   }
 
   // ---- Book helpers ----
@@ -253,23 +261,32 @@ export class PostgresAdapter implements DatabaseAdapter {
     const batchId = batchCustomId ?? null;
 
     await this.sql`
-      INSERT INTO pages (book_id, page_number, transcription, has_illustration, status, batch_custom_id, created_by, updated_at)
-      VALUES (${bookId}, ${pageNumber}, ${transcription}, ${hasIllustration}, ${status}, ${batchId}, ${createdBy}, NOW())
+      INSERT INTO pages (book_id, page_number, transcription, original_transcription, has_illustration, status, batch_custom_id, created_by, updated_at)
+      VALUES (${bookId}, ${pageNumber}, ${transcription}, ${transcription}, ${hasIllustration}, ${status}, ${batchId}, ${createdBy}, NOW())
       ON CONFLICT(book_id, page_number) DO UPDATE SET
-        transcription    = EXCLUDED.transcription,
-        has_illustration = EXCLUDED.has_illustration,
-        status           = EXCLUDED.status,
-        batch_custom_id  = EXCLUDED.batch_custom_id,
-        updated_at       = NOW()
+        transcription          = EXCLUDED.transcription,
+        original_transcription = COALESCE(pages.original_transcription, EXCLUDED.transcription),
+        has_illustration       = EXCLUDED.has_illustration,
+        status                 = EXCLUDED.status,
+        batch_custom_id        = EXCLUDED.batch_custom_id,
+        updated_at             = NOW()
     `;
   }
 
-  async updatePageTranscription(bookId: number, pageNumber: number, transcription: string): Promise<boolean> {
-    const result = await this.sql`
-      UPDATE pages
-      SET transcription = ${transcription}, is_edited = TRUE, updated_at = NOW()
-      WHERE book_id = ${bookId} AND page_number = ${pageNumber}
-    `;
+  async updatePageTranscription(bookId: number, pageNumber: number, transcription: string, markEdited = true): Promise<boolean> {
+    const result = markEdited
+      ? await this.sql`
+          UPDATE pages
+          SET transcription = ${transcription}, is_edited = TRUE, updated_at = NOW()
+          WHERE book_id = ${bookId} AND page_number = ${pageNumber}
+        `
+      : await this.sql`
+          UPDATE pages
+          SET transcription = ${transcription}, is_edited = FALSE,
+              original_transcription = COALESCE(original_transcription, ${transcription}),
+              updated_at = NOW()
+          WHERE book_id = ${bookId} AND page_number = ${pageNumber}
+        `;
     return result.count > 0;
   }
 

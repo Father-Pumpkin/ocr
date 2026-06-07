@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getBookPagesData, getPageImageData, updatePageText, setPageTagsData, retranscribePageData, insertPageData, deletePageData, NotFoundError, AuthRequiredError, } from '../../core/book-service.js';
+import { getBookPagesData, getPageImageData, setPageImageData, updatePageText, setPageTagsData, retranscribePageData, insertPageData, deletePageData, NotFoundError, AuthRequiredError, } from '../../core/book-service.js';
 export const booksRouter = Router();
 /** Maps thrown errors to HTTP responses consistently across routes. */
 function handleError(err, res) {
@@ -48,6 +48,21 @@ booksRouter.get('/books/:name/pages/:n/image', async (req, res) => {
         res.set('Content-Type', 'image/jpeg');
         res.set('Cache-Control', 'no-cache');
         res.send(buf);
+    }
+    catch (err) {
+        handleError(err, res);
+    }
+});
+// PUT /api/books/:name/pages/:n/image — replace the page's cached image (base64)
+booksRouter.put('/books/:name/pages/:n/image', async (req, res) => {
+    try {
+        const imageBase64 = req.body?.imageBase64 ?? req.body?.image_base64;
+        if (typeof imageBase64 !== 'string' || !imageBase64.trim()) {
+            res.status(400).json({ error: 'imageBase64 (base64 string) is required.' });
+            return;
+        }
+        await setPageImageData(bookName(req), pageNum(req), imageBase64);
+        res.json({ ok: true });
     }
     catch (err) {
         handleError(err, res);

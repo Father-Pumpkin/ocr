@@ -15,6 +15,8 @@ export interface PageRow {
   book_id: number;
   page_number: number;
   transcription: string | null;
+  /** First machine OCR result, preserved for research. Never overwritten by manual edits. Null for pre-migration edited pages. */
+  original_transcription: string | null;
   has_illustration: boolean;
   is_edited: boolean;
   status: string;
@@ -67,7 +69,8 @@ export interface DatabaseAdapter {
 
   // Pages
   upsertPage(bookId: number, pageNumber: number, transcription: string, batchCustomId?: string): Promise<void>;
-  updatePageTranscription(bookId: number, pageNumber: number, transcription: string): Promise<boolean>;
+  /** markEdited=true (default) flags a manual edit; false is for machine re-OCR and also captures original_transcription if not yet set. */
+  updatePageTranscription(bookId: number, pageNumber: number, transcription: string, markEdited?: boolean): Promise<boolean>;
   getPages(bookId: number, pageStart?: number, pageEnd?: number): Promise<PageRow[]>;
   getPageByCustomId(batchCustomId: string): Promise<PageRow | undefined>;
   setPageTags(bookId: number, pageNumber: number, tags: string[]): Promise<boolean>;

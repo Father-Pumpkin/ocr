@@ -9,6 +9,7 @@ interface SqlitePageRow {
   book_id: number;
   page_number: number;
   transcription: string | null;
+  original_transcription: string | null;
   has_illustration: number;
   is_edited: number;
   status: string;
@@ -64,6 +65,7 @@ export class SqliteAdapter implements DatabaseAdapter {
         book_id          INTEGER NOT NULL REFERENCES books(id),
         page_number      INTEGER NOT NULL,
         transcription    TEXT,
+        original_transcription TEXT,
         has_illustration BOOLEAN DEFAULT FALSE,
         is_edited        BOOLEAN DEFAULT FALSE,
         status           TEXT DEFAULT 'pending',
@@ -145,6 +147,22 @@ export class SqliteAdapter implements DatabaseAdapter {
     } catch {
       // Column already exists — no-op
     }
+
+    // Preserve the first OCR result for research. Add the column, then backfill
+    // un-edited rows (their current text == the original). Edited rows are left
+    // NULL since their true original is unrecoverable.
+    try {
+      this.db.exec(`ALTER TABLE pages ADD COLUMN original_transcription TEXT`);
+    } catch {
+      // Column already exists — no-op
+    }
+    try {
+      this.db.exec(
+        `UPDATE pages SET original_transcription = transcription WHERE original_transcription IS NULL AND is_edited = 0`
+      );
+    } catch {
+      // Best-effort backfill
+    }
   }
 
   // ---- Book helpers ----
@@ -204,25 +222,34 @@ export class SqliteAdapter implements DatabaseAdapter {
     const createdBy = process.env.APP_USER_ID ?? null;
 
     this.db.prepare(`
-      INSERT INTO pages (book_id, page_number, transcription, has_illustration, status, batch_custom_id, created_by, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT INTO pages (book_id, page_number, transcription, original_transcription, has_illustration, status, batch_custom_id, created_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(book_id, page_number) DO UPDATE SET
-        transcription    = excluded.transcription,
-        has_illustration = excluded.has_illustration,
-        status           = excluded.status,
-        batch_custom_id  = excluded.batch_custom_id,
-        updated_at       = CURRENT_TIMESTAMP
-    `).run(bookId, pageNumber, transcription, hasIllustration, status, batchCustomId ?? null, createdBy);
+        transcription          = excluded.transcription,
+        original_transcription = COALESCE(original_transcription, excluded.transcription),
+        has_illustration       = excluded.has_illustration,
+        status                 = excluded.status,
+        batch_custom_id        = excluded.batch_custom_id,
+        updated_at             = CURRENT_TIMESTAMP
+    `).run(bookId, pageNumber, transcription, transcription, hasIllustration, status, batchCustomId ?? null, createdBy);
 
     return Promise.resolve();
   }
 
-  async updatePageTranscription(bookId: number, pageNumber: number, transcription: string): Promise<boolean> {
-    const result = this.db.prepare(`
-      UPDATE pages
-      SET transcription = ?, is_edited = 1, updated_at = CURRENT_TIMESTAMP
-      WHERE book_id = ? AND page_number = ?
-    `).run(transcription, bookId, pageNumber);
+  async updatePageTranscription(bookId: number, pageNumber: number, transcription: string, markEdited = true): Promise<boolean> {
+    const result = markEdited
+      ? this.db.prepare(`
+          UPDATE pages
+          SET transcription = ?, is_edited = 1, updated_at = CURRENT_TIMESTAMP
+          WHERE book_id = ? AND page_number = ?
+        `).run(transcription, bookId, pageNumber)
+      : this.db.prepare(`
+          UPDATE pages
+          SET transcription = ?, is_edited = 0,
+              original_transcription = COALESCE(original_transcription, ?),
+              updated_at = CURRENT_TIMESTAMP
+          WHERE book_id = ? AND page_number = ?
+        `).run(transcription, transcription, bookId, pageNumber);
     return Promise.resolve(result.changes > 0);
   }
 
