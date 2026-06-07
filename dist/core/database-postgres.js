@@ -202,6 +202,7 @@ export class PostgresAdapter {
         status                 = EXCLUDED.status,
         batch_custom_id        = EXCLUDED.batch_custom_id,
         updated_at             = NOW()
+      WHERE pages.is_edited = FALSE
     `;
     }
     async updatePageTranscription(bookId, pageNumber, transcription, markEdited = true) {

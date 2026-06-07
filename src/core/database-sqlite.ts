@@ -268,6 +268,7 @@ export class SqliteAdapter implements DatabaseAdapter {
         status                 = excluded.status,
         batch_custom_id        = excluded.batch_custom_id,
         updated_at             = CURRENT_TIMESTAMP
+      WHERE is_edited = 0
     `).run(bookId, pageNumber, transcription, transcription, hasIllustration, status, batchCustomId ?? null, createdBy);
 
     return Promise.resolve();
