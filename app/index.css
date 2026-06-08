@@ -1,1 +1,130 @@
 @import "tailwindcss";
+
+/* Dark mode is driven by a `.dark` class on <html> (toggled in the header;
+   initialized before paint in index.html to avoid a flash). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------------------
+   Design tokens — warm, editorial palette. Semantic CSS variables flip under
+   `.dark`; Tailwind utilities below reference them so colors theme for free.
+--------------------------------------------------------------------------- */
+:root {
+  --bg: #faf6ef;          /* warm paper */
+  --surface: #fffdfa;     /* cards / panels */
+  --surface-2: #f3ecdf;   /* inset / subtle raised */
+  --ink: #2a2520;         /* warm near-black text */
+  --muted: #7c7268;       /* secondary text */
+  --faint: #a99e90;       /* tertiary / placeholder */
+  --border: #e9e0d0;      /* hairline */
+  --border-strong: #dacfb9;
+
+  --accent: #bf5e38;      /* terracotta */
+  --accent-hover: #a64e2c;
+  --accent-soft: #f7e7dd; /* terracotta tint */
+  --accent-ink: #ffffff;
+
+  --ok: #4f7a4e;
+  --ok-soft: #e7f0e2;
+  --warn: #9c6f2b;
+  --warn-soft: #f6ead0;
+  --danger: #b13f2c;
+  --danger-soft: #f6e1da;
+
+  --shadow: 0 1px 2px rgb(43 37 32 / 0.05), 0 12px 28px -14px rgb(43 37 32 / 0.22);
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #161210;
+  --surface: #201a16;
+  --surface-2: #2a231d;
+  --ink: #f0e7d9;
+  --muted: #a99c8b;
+  --faint: #7e7264;
+  --border: #352d25;
+  --border-strong: #473c30;
+
+  --accent: #db8159;
+  --accent-hover: #e8946d;
+  --accent-soft: #36251d;
+  --accent-ink: #1a1410;
+
+  --ok: #84a978;
+  --ok-soft: #222c1f;
+  --warn: #d6a95f;
+  --warn-soft: #322a1b;
+  --danger: #d97a5e;
+  --danger-soft: #34211b;
+
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 14px 32px -14px rgb(0 0 0 / 0.7);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-serif: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif;
+
+  --shadow-card: var(--shadow);
+}
+
+@layer base {
+  /* Tailwind v4 leaves the default border color as currentColor; pin ours. */
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-serif);
+  }
+
+  ::selection {
+    background: var(--accent-soft);
+    color: var(--ink);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 9999px;
+    border: 2px solid var(--bg);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
