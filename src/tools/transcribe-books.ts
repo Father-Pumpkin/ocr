@@ -1,14 +1,14 @@
-import { listPdfsInFolder, downloadPdf, AuthRequiredError, type DriveFile } from '../google-drive.js';
+import { listPdfsInFolder, downloadPdf, AuthRequiredError, type DriveFile } from '../core/google-drive.js';
 import {
   upsertBook,
   updateBookStatus,
   createBatchJob,
-} from '../database.js';
+} from '../core/database.js';
 import {
   transcribeBookPdf,
   createOcrBatch,
   type BatchBookRequest,
-} from '../ocr.js';
+} from '../core/ocr.js';
 
 interface TranscribeBooksArgs {
   book_names: string[];  // empty = all books

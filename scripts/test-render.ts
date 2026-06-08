@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFDocument, rgb } from 'pdf-lib';
-import { renderAllPdfPages } from '../src/render-pdf.js';
+import { renderAllPdfPages } from '../src/core/render-pdf.js';
 
 // Minimal 1×1 red PNG — triggers ImageData in pdfjs when rendered
 const ONE_PIXEL_RED_PNG = Buffer.from(

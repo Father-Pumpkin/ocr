@@ -1,4 +1,4 @@
-import { getBookByName, setPageTags } from '../database.js';
+import { getBookByName, setPageTags } from '../core/database.js';
 
 interface TagPageArgs {
   book_name: string;

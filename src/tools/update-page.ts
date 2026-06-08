@@ -1,4 +1,4 @@
-import { getBookByName, updatePageTranscription } from '../database.js';
+import { getBookByName, updatePageTranscription } from '../core/database.js';
 
 interface UpdatePageArgs {
   book_name: string;

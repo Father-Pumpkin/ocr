@@ -1,6 +1,6 @@
-import { getBookByName, updatePageTranscription } from '../database.js';
+import { getBookByName, updatePageTranscription } from '../core/database.js';
 import { getPageImageTool } from './get-page-image.js';
-import { transcribeSinglePageImage, DEFAULT_MODEL } from '../ocr.js';
+import { transcribeSinglePageImage, DEFAULT_MODEL } from '../core/ocr.js';
 export async function retranscribePage(args) {
     const { book_name, page_number, model = DEFAULT_MODEL } = args;
     const book = await getBookByName(book_name);

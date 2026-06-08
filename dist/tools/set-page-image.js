@@ -1,4 +1,4 @@
-import { getBookByName, setPageImage } from '../database.js';
+import { getBookByName, setPageImage } from '../core/database.js';
 export async function setPageImageTool(args) {
     const { book_name, page_number, image_base64 } = args;
     const book = await getBookByName(book_name);

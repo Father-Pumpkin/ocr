@@ -1,15 +1,21 @@
 import { defineConfig } from 'vite';
-import { viteSingleFile } from 'vite-plugin-singlefile';
-import { resolve } from 'path';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import { resolve } from 'node:path';
+
+const API_PORT = Number(process.env.OCR_API_PORT ?? 5180);
 
 export default defineConfig({
-  root: resolve(__dirname, 'ui'),
-  plugins: [viteSingleFile()],
+  root: 'app',
+  plugins: [react(), tailwindcss()],
   build: {
-    outDir: resolve(__dirname, 'ui/dist'),
+    outDir: resolve(__dirname, 'app/dist'),
     emptyOutDir: true,
-    rollupOptions: {
-      input: resolve(__dirname, 'ui/mcp-app.html'),
+  },
+  server: {
+    port: 5173,
+    proxy: {
+      '/api': `http://localhost:${API_PORT}`,
     },
   },
 });

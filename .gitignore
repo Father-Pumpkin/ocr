@@ -1,8 +1,8 @@
 node_modules/
-ui/dist/*.js
-ui/dist/*.css
+app/dist/
 .env
 data/
 credentials/
 *.db
 .claude/
+.suspects-batch.json

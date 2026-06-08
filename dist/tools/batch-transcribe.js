@@ -1,6 +1,6 @@
-import { listPdfsInFolder, downloadPdf, AuthRequiredError } from '../google-drive.js';
-import { getAllBooks, getInProgressBatchJobs, upsertBook, updateBookStatus, createBatchJob } from '../database.js';
-import { createOcrBatch } from '../ocr.js';
+import { listPdfsInFolder, downloadPdf, AuthRequiredError } from '../core/google-drive.js';
+import { getAllBooks, getInProgressBatchJobs, upsertBook, updateBookStatus, createBatchJob } from '../core/database.js';
+import { createOcrBatch } from '../core/ocr.js';
 export async function batchTranscribe(args) {
     const { book_names, overwrite = false, dry_run = false } = args;
     // 1. Collect Drive files + DB state in parallel

@@ -145,7 +145,6 @@ Opens the **Transcription Viewer** — a UI embedded directly in chat where you 
 | `get_transcription` | Retrieve stored transcription text |
 | `update_page` | Manually correct a specific page |
 | `tag_page` | Set narrative tags on a page |
-| `view_transcriptions` | Open the interactive viewer UI |
 
 **Transcribe a book:**
 ```
@@ -167,14 +166,14 @@ Show me pages 1–5 of "El monstruo de colores"
 ## Build Commands
 
 ```bash
-npm run build:all   # Build UI (Vite) + server (TypeScript) — use this normally
-npm run build:ui    # Build UI only  → ui/dist/mcp-app.html
-npm run build       # Build server only → dist/
-npm run dev         # Run server directly with tsx (no build needed)
+npm run build       # Build MCP server → dist/
+npm run build:app   # Build web app → app/dist/
+npm run build:all   # Both server + web app
+npm run dev         # Run MCP server directly with tsx
+npm run dev:server  # Run the local HTTP backend (for the web app)
+npm run dev:app     # Run backend + Vite dev server together → http://localhost:5173
 npm start           # Run compiled dist/index.js
 ```
-
-Run `npm run build:all` after pulling updates that change the UI or server.
 
 ---
 
@@ -183,31 +182,31 @@ Run `npm run build:all` after pulling updates that change the UI or server.
 ```
 .
 ├── src/
-│   ├── index.ts              # MCP server entry point, all tool registrations
-│   ├── database.ts           # SQLite schema, migrations, query helpers
-│   ├── google-drive.ts       # OAuth2 flow, Drive list & download
-│   ├── ocr.ts                # Claude Haiku OCR (single-request + Batch API)
-│   ├── pdf-processor.ts      # PDF page rendering (pdfjs-dist + canvas)
-│   └── tools/
-│       ├── list-books.ts
-│       ├── transcribe-books.ts
-│       ├── get-transcription.ts
-│       ├── update-page.ts
-│       └── tag-page.ts
-├── ui/
-│   ├── mcp-app.html          # Vite entry point
-│   ├── src/
-│   │   ├── mcp-app.ts        # UI TypeScript (App class, tool calls)
-│   │   └── styles.css        # Dark + light theme styles
-│   └── dist/                 # Built single-file HTML (gitignored)
-├── dist/                     # Compiled server JS (gitignored)
+│   ├── index.ts              # MCP stdio server entry, all tool registrations
+│   ├── core/                 # Shared business logic (used by MCP + HTTP)
+│   │   ├── book-service.ts   # Public facade for non-MCP consumers
+│   │   ├── database.ts       # SQLite/Postgres adapter
+│   │   ├── google-drive.ts   # OAuth2 + Drive list/download
+│   │   ├── ocr.ts            # Claude OCR (single + Batch API)
+│   │   └── render-pdf.ts     # PDF page rendering (pdfjs-dist + canvas)
+│   ├── tools/                # One file per MCP tool
+│   └── http/                 # Local HTTP backend for the web app
+│       ├── server.ts         # Express app factory
+│       ├── start.ts          # Standalone Node entry
+│       └── routes/           # REST routes (delegate to core/book-service)
+├── app/                      # React web app (Vite)
+│   ├── index.html
+│   ├── main.tsx
+│   ├── App.tsx
+│   └── dist/                 # Built web app (gitignored)
+├── dist/                     # Compiled MCP server JS
 ├── data/                     # SQLite database (gitignored)
 ├── credentials/              # OAuth token (gitignored)
 ├── .env                      # Your API keys (gitignored)
 ├── .env.example              # Copy this to .env
-├── vite.config.ts            # UI build config
-├── tsconfig.json             # Server TypeScript config
-├── tsconfig.vite.json        # UI TypeScript config
+├── vite.config.ts            # Web app build config
+├── tsconfig.json             # MCP server TypeScript config
+├── tsconfig.app.json         # Web app TypeScript config
 └── package.json
 ```
 

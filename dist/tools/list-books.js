@@ -1,5 +1,5 @@
-import { listPdfsInFolder } from '../google-drive.js';
-import { getAllBooks } from '../database.js';
+import { listPdfsInFolder } from '../core/google-drive.js';
+import { getAllBooks } from '../core/database.js';
 export async function listBooks() {
     let driveFiles;
     try {

@@ -1,4 +1,4 @@
-import { getBookByName, updatePageTranscription } from '../database.js';
+import { getBookByName, updatePageTranscription } from '../core/database.js';
 export async function updatePage(args) {
     const { book_name, page_number, transcription } = args;
     if (!transcription || transcription.trim() === '') {

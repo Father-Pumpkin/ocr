@@ -9,15 +9,25 @@
   },
   "files": [
     "dist/",
-    "ui/dist/"
+    "app/dist/"
   ],
   "scripts": {
     "build": "tsc",
-    "build:ui": "vite build",
-    "build:all": "npm run build:ui && npm run build",
+    "build:app": "vite build",
+    "build:all": "npm run build && npm run build:app",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "test": "tsx --test scripts/test-render.ts"
+    "dev:server": "tsx src/http/start.ts",
+    "dev:app": "concurrently -k -n server,vite -c blue,magenta \"npm:dev:server\" \"vite\"",
+    "test": "tsx --test scripts/test-render.ts",
+    "typecheck:app": "tsc -p tsconfig.app.json",
+    "reauth": "tsx scripts/reauth.ts",
+    "diagnose": "tsx scripts/diagnose-originals.ts",
+    "retranscribe-all": "tsx scripts/retranscribe-all.ts",
+    "process-batches": "tsx scripts/process-batches.ts",
+    "grade-all": "tsx scripts/grade-all.ts",
+    "title-case": "tsx scripts/title-case-pass.ts",
+    "reocr-suspects": "tsx scripts/reocr-suspects.ts"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -41,25 +51,32 @@
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "@modelcontextprotocol/ext-apps": "^1.2.0",
     "@modelcontextprotocol/sdk": "^1.10.1",
     "@napi-rs/canvas": "^0.1.57",
-    "better-sqlite3": "^11.9.1",
+    "better-sqlite3": "^12.10.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "googleapis": "^144.0.0",
     "open": "^10.1.0",
     "pdfjs-dist": "^4.4.168",
-    "postgres": "^3.4.8"
+    "postgres": "^3.4.8",
+    "react-router-dom": "^7.17.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.9",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^9.0.0",
     "pdf-lib": "^1.17.1",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "tailwindcss": "^4.3.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
-    "vite": "^6.4.1",
-    "vite-plugin-singlefile": "^2.3.0"
+    "vite": "^6.4.1"
   }
 }

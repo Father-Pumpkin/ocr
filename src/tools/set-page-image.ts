@@ -1,4 +1,4 @@
-import { getBookByName, setPageImage } from '../database.js';
+import { getBookByName, setPageImage } from '../core/database.js';
 
 interface SetPageImageArgs {
   book_name: string;

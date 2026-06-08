@@ -1,4 +1,4 @@
-import { getBookByName, deletePage } from '../database.js';
+import { getBookByName, deletePage } from '../core/database.js';
 
 interface DeletePageArgs {
   book_name: string;
