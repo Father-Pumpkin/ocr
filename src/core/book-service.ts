@@ -13,9 +13,6 @@ import {
   getPages,
   updatePageTranscription,
   setPageTags,
-  getPageImage,
-  setPageImage,
-  cachePageImages,
   hasAnyPageImage,
   insertPageAfter,
   deletePage,
@@ -26,6 +23,7 @@ import {
 } from './database.js';
 import { listPdfsInFolder, downloadPdf, type DriveFile } from './google-drive.js';
 import { renderAllPdfPages } from './render-pdf.js';
+import { readPageImageBase64, writePageImageBase64, imageRenderScale } from './image-service.js';
 import { transcribeSinglePageImage, DEFAULT_MODEL } from './ocr.js';
 import { verifyBookById, verifyPageById, markPageOkById } from './quality.js';
 import { splitImageHorizontally } from './image-split.js';
@@ -144,16 +142,18 @@ export async function getPageImageData(
   const book = await requireBook(bookName);
   const driveUrl = `https://drive.google.com/file/d/${book.drive_file_id}/view`;
 
-  const cached = await getPageImage(book.id, pageNumber);
+  const cached = await readPageImageBase64(book.id, pageNumber);
   if (cached) return { imageData: cached, driveUrl };
 
   // Other pages cached but not this one → no corresponding PDF page.
   if (await hasAnyPageImage(book.id)) return { imageData: null, driveUrl };
 
-  // Full miss — render the whole PDF once and cache.
+  // Full miss — render the whole PDF once and store (object storage when configured).
   const pdfBuffer = await downloadPdf(book.drive_file_id, { interactive: false });
-  const images = await renderAllPdfPages(pdfBuffer, 1.0);
-  await cachePageImages(book.id, images.map((imageData, i) => ({ pageNumber: i + 1, imageData })));
+  const images = await renderAllPdfPages(pdfBuffer, imageRenderScale());
+  for (let i = 0; i < images.length; i++) {
+    await writePageImageBase64(book.id, i + 1, images[i]);
+  }
   return { imageData: images[pageNumber - 1] ?? null, driveUrl };
 }
 
@@ -238,7 +238,7 @@ export async function setPageImageData(
   const book = await requireBook(bookName);
   const raw = imageBase64.replace(/^data:[^;]+;base64,/, '').trim();
   if (!raw) throw new NotFoundError('Image data is empty.');
-  await setPageImage(book.id, pageNumber, raw);
+  await writePageImageBase64(book.id, pageNumber, raw);
 }
 
 // ---------------------------------------------------------------------------
@@ -297,8 +297,8 @@ export async function splitPageData(
 
   await updatePageTranscription(book.id, pageNumber, leftText, true);
   await updatePageTranscription(book.id, pageNumber + 1, rightText, true);
-  if (leftImg) await setPageImage(book.id, pageNumber, leftImg);
-  if (rightImg) await setPageImage(book.id, pageNumber + 1, rightImg);
+  if (leftImg) await writePageImageBase64(book.id, pageNumber, leftImg);
+  if (rightImg) await writePageImageBase64(book.id, pageNumber + 1, rightImg);
 
   const left = await getSinglePage(book.id, pageNumber);
   const right = await getSinglePage(book.id, pageNumber + 1);

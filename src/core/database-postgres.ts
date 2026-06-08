@@ -213,6 +213,9 @@ export class PostgresAdapter implements DatabaseAdapter {
     await this.sql`ALTER TABLE pages ADD COLUMN IF NOT EXISTS ocr_quality_reason TEXT`;
     await this.sql`ALTER TABLE books ADD COLUMN IF NOT EXISTS ocr_quality TEXT`;
     await this.sql`ALTER TABLE books ADD COLUMN IF NOT EXISTS ocr_quality_note TEXT`;
+
+    // Object-storage key for page images (R2)
+    await this.sql`ALTER TABLE page_images ADD COLUMN IF NOT EXISTS object_key TEXT`;
   }
 
   // ---- Book helpers ----
@@ -591,6 +594,21 @@ export class PostgresAdapter implements DatabaseAdapter {
       INSERT INTO page_images (book_id, page_number, image_data)
       VALUES (${bookId}, ${pageNumber}, ${imageData})
       ON CONFLICT (book_id, page_number) DO UPDATE SET image_data = EXCLUDED.image_data
+    `;
+  }
+
+  async getPageImageKey(bookId: number, pageNumber: number): Promise<string | null> {
+    const rows = await this.sql<{ object_key: string | null }[]>`
+      SELECT object_key FROM page_images WHERE book_id = ${bookId} AND page_number = ${pageNumber}
+    `;
+    return rows.length > 0 ? rows[0].object_key : null;
+  }
+
+  async setPageImageKey(bookId: number, pageNumber: number, objectKey: string): Promise<void> {
+    await this.sql`
+      INSERT INTO page_images (book_id, page_number, image_data, object_key)
+      VALUES (${bookId}, ${pageNumber}, '', ${objectKey})
+      ON CONFLICT (book_id, page_number) DO UPDATE SET object_key = EXCLUDED.object_key, image_data = ''
     `;
   }
 

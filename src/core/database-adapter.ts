@@ -113,6 +113,10 @@ export interface DatabaseAdapter {
   // Page images
   getPageImage(bookId: number, pageNumber: number): Promise<string | null>;
   setPageImage(bookId: number, pageNumber: number, imageData: string): Promise<void>;
+  /** Object-storage key for a page image (R2), or null if stored as base64/absent. */
+  getPageImageKey(bookId: number, pageNumber: number): Promise<string | null>;
+  /** Points a page image at an object-storage key (clears the base64 blob). */
+  setPageImageKey(bookId: number, pageNumber: number, objectKey: string): Promise<void>;
   cachePageImages(bookId: number, images: Array<{ pageNumber: number; imageData: string }>): Promise<void>;
   hasAnyPageImage(bookId: number): Promise<boolean>;
 

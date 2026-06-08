@@ -1,6 +1,7 @@
-import { getBookByName, getPageImage, cachePageImages, hasAnyPageImage } from '../core/database.js';
+import { getBookByName, hasAnyPageImage } from '../core/database.js';
 import { downloadPdf } from '../core/google-drive.js';
 import { renderAllPdfPages } from '../core/render-pdf.js';
+import { readPageImageBase64, writePageImageBase64, imageRenderScale } from '../core/image-service.js';
 
 export async function getPageImageTool(
   bookName: string,
@@ -11,8 +12,8 @@ export async function getPageImageTool(
 
   const driveUrl = `https://drive.google.com/file/d/${book.drive_file_id}/view`;
 
-  // Check cache first
-  const cached = await getPageImage(book.id, pageNumber);
+  // Check cache first (object storage when configured, else base64).
+  const cached = await readPageImageBase64(book.id, pageNumber);
   if (cached) return { imageData: cached, driveUrl };
 
   // If other pages are already cached, this page has no corresponding PDF page
@@ -20,16 +21,12 @@ export async function getPageImageTool(
   const hasCache = await hasAnyPageImage(book.id);
   if (hasCache) return { imageData: null, driveUrl };
 
-  // Full cache miss — download PDF and render all pages
+  // Full cache miss — download PDF and render all pages.
   process.stderr.write(`[OCR MCP] Rendering pages for "${bookName}" from Drive...\n`);
   const pdfBuffer = await downloadPdf(book.drive_file_id);
-  const images = await renderAllPdfPages(pdfBuffer, 1.0);
+  const images = await renderAllPdfPages(pdfBuffer, imageRenderScale());
+  for (let i = 0; i < images.length; i++) await writePageImageBase64(book.id, i + 1, images[i]);
 
-  await cachePageImages(book.id, images.map((imageData, i) => ({
-    pageNumber: i + 1,
-    imageData,
-  })));
-
-  // Page beyond PDF range = manually inserted, no image
+  // Page beyond PDF range = manually inserted, no image.
   return { imageData: images[pageNumber - 1] ?? null, driveUrl };
 }

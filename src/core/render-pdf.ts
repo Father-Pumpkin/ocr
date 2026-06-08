@@ -35,7 +35,7 @@ export async function renderAllPdfPages(
       canvasContext: context as unknown as CanvasRenderingContext2D,
       viewport,
     }).promise;
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
     results.push(dataUrl.replace(/^data:image\/jpeg;base64,/, ''));
   }
 

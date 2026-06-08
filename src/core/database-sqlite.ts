@@ -193,6 +193,13 @@ export class SqliteAdapter implements DatabaseAdapter {
     } catch {
       // Column already exists — no-op
     }
+
+    // Object-storage key for page images (R2)
+    try {
+      this.db.exec(`ALTER TABLE page_images ADD COLUMN object_key TEXT`);
+    } catch {
+      // Column already exists — no-op
+    }
   }
 
   // ---- Book helpers ----
@@ -521,6 +528,22 @@ export class SqliteAdapter implements DatabaseAdapter {
       INSERT OR REPLACE INTO page_images (book_id, page_number, image_data)
       VALUES (?, ?, ?)
     `).run(bookId, pageNumber, imageData);
+    return Promise.resolve();
+  }
+
+  async getPageImageKey(bookId: number, pageNumber: number): Promise<string | null> {
+    const row = this.db
+      .prepare('SELECT object_key FROM page_images WHERE book_id = ? AND page_number = ?')
+      .get(bookId, pageNumber) as { object_key: string | null } | undefined;
+    return Promise.resolve(row?.object_key ?? null);
+  }
+
+  async setPageImageKey(bookId: number, pageNumber: number, objectKey: string): Promise<void> {
+    this.db.prepare(`
+      INSERT INTO page_images (book_id, page_number, image_data, object_key)
+      VALUES (?, ?, '', ?)
+      ON CONFLICT(book_id, page_number) DO UPDATE SET object_key = excluded.object_key, image_data = ''
+    `).run(bookId, pageNumber, objectKey);
     return Promise.resolve();
   }
 

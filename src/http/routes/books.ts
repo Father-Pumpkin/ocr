@@ -65,7 +65,8 @@ booksRouter.get('/books/:name/pages/:n/image', async (req, res) => {
       return;
     }
     const buf = Buffer.from(imageData, 'base64');
-    res.set('Content-Type', 'image/jpeg');
+    const isPng = buf.length > 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+    res.set('Content-Type', isPng ? 'image/png' : 'image/jpeg');
     res.set('Cache-Control', 'no-cache');
     res.send(buf);
   } catch (err) {
