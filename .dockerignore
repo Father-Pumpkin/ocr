@@ -1,0 +1,18 @@
+# Rebuilt inside the image
+node_modules
+dist
+app/dist
+
+# Secrets & local state (provided as host env vars / not needed at build)
+.env
+.env.*
+credentials
+data
+*.db
+.suspects-batch.json
+
+# VCS / tooling / editor cruft
+.git
+.gitignore
+.claude
+*.md

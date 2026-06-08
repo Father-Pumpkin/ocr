@@ -56,6 +56,22 @@ function createOAuth2Client(): OAuth2Client {
   return new google.auth.OAuth2(clientId, clientSecret, getRedirectUri());
 }
 
+/**
+ * Reads a Drive OAuth token from the GOOGLE_DRIVE_TOKEN env var (hosted deploys
+ * where the browser flow + token file aren't available). Returns null if unset
+ * or invalid so callers fall back to the local token file.
+ */
+function readEnvToken(): Record<string, unknown> | null {
+  const raw = process.env.GOOGLE_DRIVE_TOKEN;
+  if (!raw || !raw.trim()) return null;
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    process.stderr.write('[OCR MCP] GOOGLE_DRIVE_TOKEN is set but not valid JSON; ignoring.\n');
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Local OAuth callback server
 // ---------------------------------------------------------------------------
@@ -161,6 +177,16 @@ export async function authenticate(opts: { interactive?: boolean } = {}): Promis
   const interactive = opts.interactive ?? true;
   if (authenticatedClient) return authenticatedClient;
 
+  // Hosted deploys: use a token provided via env. The OAuth2 client refreshes
+  // the access token automatically using the refresh_token in the stored JSON.
+  const envTok = readEnvToken();
+  if (envTok) {
+    const client = createOAuth2Client();
+    client.setCredentials(envTok);
+    authenticatedClient = client;
+    return authenticatedClient;
+  }
+
   const oAuth2Client = createOAuth2Client();
   const tokenPath = getTokenPath();
 
@@ -212,6 +238,11 @@ export async function authenticate(opts: { interactive?: boolean } = {}): Promis
  * Returns { started: false } if a connect is already in flight.
  */
 export function startDriveConnect(): { started: boolean } {
+  if (process.env.NODE_ENV === 'production') {
+    lastConnectError =
+      'In the hosted app, connect Drive by setting the GOOGLE_DRIVE_TOKEN secret — the browser flow only runs locally.';
+    return { started: false };
+  }
   if (connectInFlight) return { started: false };
   lastConnectError = null;
   clearAuth(); // force a fresh login + account picker
