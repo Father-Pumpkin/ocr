@@ -263,7 +263,8 @@ export function PageEditor() {
       else navigate(`/book/${encodeURIComponent(name)}/page/${Math.max(1, pageNumber - 1)}`);
     } catch (e) {
       setActionError(e instanceof ApiError ? e.message : String(e));
-      setDeleting(false);
+    } finally {
+      setDeleting(false); // always clear, even on success — otherwise the editor stays "busy" forever
     }
   }
 
