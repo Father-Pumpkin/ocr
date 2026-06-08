@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import type { BookRow, PageRow } from '../types';
 import { parseTags } from '../types';
-import { Loading, ErrorBox, EmptyState } from '../components/ui';
+import { Loading, ErrorBox, EmptyState, Button, IconButton, Label, Badge } from '../components/ui';
+import { ChevronLeft, ChevronRight, Alert, Check, Upload, Refresh, ShieldCheck, Plus, Trash, ImageOff } from '../components/icons';
 
 function readAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -13,6 +14,9 @@ function readAsDataURL(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+const inputClass =
+  'w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30';
 
 export function PageEditor() {
   const { name = '', n = '1' } = useParams();
@@ -44,17 +48,15 @@ export function PageEditor() {
   const [checking, setChecking] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const page = useMemo(
-    () => pages?.find((p) => p.page_number === pageNumber) ?? null,
-    [pages, pageNumber],
-  );
+  const page = useMemo(() => pages?.find((p) => p.page_number === pageNumber) ?? null, [pages, pageNumber]);
   const hasPrev = !!pages?.some((p) => p.page_number === pageNumber - 1);
   const hasNext = !!pages?.some((p) => p.page_number === pageNumber + 1);
 
   const load = useCallback(() => {
     setPages(null);
     setError(null);
-    api.getBookPages(name)
+    api
+      .getBookPages(name)
       .then((d) => {
         setBook(d.book);
         setPages(d.pages);
@@ -66,9 +68,9 @@ export function PageEditor() {
     load();
   }, [load]);
 
-  // Load model list once
   useEffect(() => {
-    api.getModels()
+    api
+      .getModels()
       .then((m) => {
         setModels(m.models);
         setSelectedModel((s) => s || m.default);
@@ -86,14 +88,10 @@ export function PageEditor() {
   }, [page]);
 
   const dirty =
-    page != null &&
-    (text !== (page.transcription ?? '') ||
-      tagsInput !== parseTags(page.tags).join(', '));
+    page != null && (text !== (page.transcription ?? '') || tagsInput !== parseTags(page.tags).join(', '));
 
   function applyUpdatedPage(updated: PageRow) {
-    setPages((prev) =>
-      prev ? prev.map((p) => (p.page_number === updated.page_number ? updated : p)) : prev,
-    );
+    setPages((prev) => (prev ? prev.map((p) => (p.page_number === updated.page_number ? updated : p)) : prev));
   }
 
   /** Navigate, warning first if there are unsaved edits. */
@@ -155,7 +153,7 @@ export function PageEditor() {
     setInserting(true);
     setActionError(null);
     try {
-      await api.insertPage(name, pageNumber); // inserts a blank page after this one
+      await api.insertPage(name, pageNumber);
       load();
       navigate(`/book/${encodeURIComponent(name)}/page/${pageNumber + 1}`);
     } catch (e) {
@@ -166,11 +164,7 @@ export function PageEditor() {
   }
 
   async function onDelete() {
-    if (
-      !window.confirm(
-        `Delete page ${pageNumber}? This renumbers the following pages and cannot be undone.`,
-      )
-    ) {
+    if (!window.confirm(`Delete page ${pageNumber}? This renumbers the following pages and cannot be undone.`)) {
       return;
     }
     setDeleting(true);
@@ -195,7 +189,7 @@ export function PageEditor() {
       const dataUrl = await readAsDataURL(file);
       await api.setPageImage(name, pageNumber, dataUrl);
       setImgError(false);
-      setImageVersion((v) => v + 1); // force <img> reload
+      setImageVersion((v) => v + 1);
     } catch (e) {
       setActionError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -215,43 +209,59 @@ export function PageEditor() {
   return (
     <div>
       {/* Breadcrumb + pager */}
-      <div className="mb-4 flex items-center justify-between">
-        <div className="text-sm text-slate-500">
-          <button onClick={() => go('/')} className="hover:text-slate-700">Library</button>
-          <span className="mx-1.5">/</span>
-          <button onClick={() => go(`/book/${encodeURIComponent(name)}`)} className="hover:text-slate-700">
+      <div className="mb-5 flex items-center justify-between gap-4">
+        <nav className="flex items-center gap-1.5 text-sm text-muted">
+          <button onClick={() => go('/')} className="transition-colors hover:text-ink">
+            Library
+          </button>
+          <span className="text-faint">/</span>
+          <button
+            onClick={() => go(`/book/${encodeURIComponent(name)}`)}
+            className="max-w-[10rem] truncate transition-colors hover:text-ink sm:max-w-[16rem]"
+          >
             {book?.title ?? name}
           </button>
-          <span className="mx-1.5">/</span>
-          <span className="text-slate-700">Page {pageNumber}</span>
-        </div>
-        <div className="flex gap-2">
-          <PagerButton onClick={() => go(`/book/${encodeURIComponent(name)}/page/${pageNumber - 1}`)} disabled={!hasPrev}>
-            ← Prev
-          </PagerButton>
-          <PagerButton onClick={() => go(`/book/${encodeURIComponent(name)}/page/${pageNumber + 1}`)} disabled={!hasNext}>
-            Next →
-          </PagerButton>
+          <span className="text-faint">/</span>
+          <span className="text-ink">Page {pageNumber}</span>
+        </nav>
+        <div className="flex items-center gap-2">
+          <IconButton
+            onClick={() => go(`/book/${encodeURIComponent(name)}/page/${pageNumber - 1}`)}
+            disabled={!hasPrev}
+            aria-label="Previous page"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </IconButton>
+          <IconButton
+            onClick={() => go(`/book/${encodeURIComponent(name)}/page/${pageNumber + 1}`)}
+            disabled={!hasNext}
+            aria-label="Next page"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </IconButton>
         </div>
       </div>
 
       {page.ocr_quality === 'suspect' && (
-        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <span className="font-medium">⚠ This transcription looks suspect.</span>{' '}
-          {page.ocr_quality_reason}{' '}
-          Consider re-transcribing with a stronger model (e.g. Opus) using the picker below.
+        <div className="mb-5 flex gap-3 rounded-lg border border-warn/30 bg-warn-soft px-4 py-3 text-sm text-warn">
+          <Alert className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            <span className="font-semibold">This transcription looks suspect.</span> {page.ocr_quality_reason}{' '}
+            Consider re-transcribing with a stronger model (e.g. Opus) using the picker below.
+          </p>
         </div>
       )}
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2">
         {/* Image */}
-        <div className="flex flex-col gap-2">
-          <div className="flex min-h-64 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+        <div className="flex flex-col gap-3">
+          <div className="flex min-h-64 items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-2 shadow-card">
             {imgError ? (
-              <div className="p-6 text-center text-sm text-slate-500">
+              <div className="p-8 text-center text-sm text-muted">
+                <ImageOff className="mx-auto mb-2 h-7 w-7 text-faint" />
                 <p>No scanned image for this page.</p>
                 {driveUrl && (
-                  <a href={driveUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                  <a href={driveUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">
                     View source on Drive
                   </a>
                 )}
@@ -275,24 +285,32 @@ export function PageEditor() {
               className="hidden"
               onChange={(e) => onPickImage(e.target.files?.[0])}
             />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={busy}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-            >
+            <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()} disabled={busy}>
+              <Upload className="h-4 w-4" />
               {uploading ? 'Uploading…' : imgError ? 'Upload image' : 'Replace image'}
-            </button>
+            </Button>
           </div>
         </div>
 
         {/* Editor */}
         <div className="flex flex-col gap-3">
-          <label className="text-xs font-medium uppercase tracking-wide text-slate-500">Transcription</label>
+          <div className="flex items-center justify-between">
+            <Label>Transcription</Label>
+            <span className="flex items-center gap-2">
+              {page.ocr_quality === 'ok' && (
+                <Badge tone="ok">
+                  <Check className="h-3 w-3" />
+                  checked
+                </Badge>
+              )}
+              {page.is_edited && <Badge tone="accent">edited</Badge>}
+            </span>
+          </div>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             spellCheck={false}
-            className="min-h-64 flex-1 resize-y rounded-md border border-slate-300 bg-white p-3 font-mono text-sm leading-relaxed focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="min-h-64 flex-1 resize-y rounded-lg border border-border bg-surface p-3.5 font-mono text-sm leading-relaxed text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           />
 
           {/* Original OCR (research) */}
@@ -300,101 +318,74 @@ export function PageEditor() {
             <div>
               <button
                 onClick={() => setShowOriginal((s) => !s)}
-                className="text-xs text-slate-500 hover:text-slate-700"
+                className="text-xs text-muted transition-colors hover:text-ink"
               >
                 {showOriginal ? '▾ Hide original OCR' : '▸ View original OCR'}
               </button>
               {showOriginal && (
-                <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-600">
+                <pre className="mt-1.5 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs text-muted">
                   {original}
                 </pre>
               )}
             </div>
           )}
 
-          <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Tags <span className="normal-case text-slate-400">(comma-separated)</span>
-          </label>
-          <input
-            value={tagsInput}
-            onChange={(e) => setTagsInput(e.target.value)}
-            placeholder="climax, inciting incident"
-            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
+          <div>
+            <Label>
+              Tags <span className="font-normal normal-case text-faint">(comma-separated)</span>
+            </Label>
+            <input
+              value={tagsInput}
+              onChange={(e) => setTagsInput(e.target.value)}
+              placeholder="climax, inciting incident"
+              className={`mt-1.5 ${inputClass}`}
+            />
+          </div>
 
           {actionError && <ErrorBox message={actionError} />}
 
           {/* Primary actions */}
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <button
-              onClick={onSave}
-              disabled={!dirty || busy}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
-            >
+            <Button variant="primary" onClick={onSave} disabled={!dirty || busy}>
               {saving ? 'Saving…' : 'Save'}
-            </button>
-            <button
-              onClick={onRetranscribe}
-              disabled={busy}
-              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
+            </Button>
+            <Button variant="secondary" onClick={onRetranscribe} disabled={busy}>
+              <Refresh className="h-4 w-4" />
               {retranscribing ? 'Re-transcribing…' : 'Re-transcribe'}
-            </button>
+            </Button>
             <select
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
               disabled={busy || models.length === 0}
               title="Model for re-transcription"
-              className="rounded-md border border-slate-300 bg-white px-2 py-2 text-sm text-slate-700 disabled:opacity-40"
+              className="h-10 rounded-lg border border-border bg-surface px-2.5 text-sm text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
             >
               {models.map((m) => (
-                <option key={m} value={m}>{m}</option>
+                <option key={m} value={m}>
+                  {m}
+                </option>
               ))}
             </select>
-            <button
-              onClick={onCheckQuality}
-              disabled={busy}
-              title="Cheap Sonnet proofreader check on this page"
-              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-            >
+            <Button variant="secondary" onClick={onCheckQuality} disabled={busy} title="Cheap Sonnet proofreader check on this page">
+              <ShieldCheck className="h-4 w-4" />
               {checking ? 'Checking…' : 'Check quality'}
-            </button>
-            {page.ocr_quality === 'ok' && <span className="text-xs text-emerald-600">✓ checked</span>}
-            {page.is_edited && <span className="text-xs text-slate-400">edited</span>}
+            </Button>
           </div>
 
           {/* Page management */}
-          <div className="mt-1 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-            <span className="text-xs uppercase tracking-wide text-slate-400">Page</span>
-            <button
-              onClick={onInsertAfter}
-              disabled={busy}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-            >
-              {inserting ? 'Inserting…' : 'Insert blank page after'}
-            </button>
-            <button
-              onClick={onDelete}
-              disabled={busy}
-              className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-40"
-            >
+          <div className="mt-1 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <Label className="mr-1">Page</Label>
+            <Button variant="secondary" size="sm" onClick={onInsertAfter} disabled={busy}>
+              <Plus className="h-4 w-4" />
+              {inserting ? 'Inserting…' : 'Insert blank after'}
+            </Button>
+            <Button variant="danger" size="sm" onClick={onDelete} disabled={busy}>
+              <Trash className="h-4 w-4" />
               {deleting ? 'Deleting…' : 'Delete page'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
     </div>
-  );
-}
-
-function PagerButton({ onClick, disabled, children }: { onClick: () => void; disabled: boolean; children: ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
-    >
-      {children}
-    </button>
   );
 }

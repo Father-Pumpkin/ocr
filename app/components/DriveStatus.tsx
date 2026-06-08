@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api, type DriveStatus as DriveStatusT } from '../lib/api';
+import { Button } from './ui';
 
 /**
- * Banner showing Google Drive connection state. Hidden when connected. Offers a
- * Connect button that kicks off the browser OAuth flow, then polls until done.
+ * Banner showing Google Drive connection state. Hidden when connected — or in
+ * the hosted app, where Drive is set via env and can't be connected from the
+ * browser (status.connectable === false). Offers a Connect button locally.
  */
 export function DriveStatus({ onConnected }: { onConnected?: () => void }) {
   const [status, setStatus] = useState<DriveStatusT | null>(null);
@@ -40,31 +42,27 @@ export function DriveStatus({ onConnected }: { onConnected?: () => void }) {
     }
   }
 
-  // Don't render until we know; hide once connected, or in the hosted app where
-  // Drive can't be connected from the browser (it's set via env there).
+  // Hide until known, once connected, or where Drive can't be browser-connected.
   if (!status || status.connected || status.connectable === false) return null;
 
   const connecting = status.connecting || starting;
 
   return (
-    <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-      <div className="text-amber-800">
+    <div className="mb-5 flex items-center justify-between gap-4 rounded-lg border border-warn/30 bg-warn-soft px-4 py-3 text-sm text-warn">
+      <div>
         {connecting ? (
           <span>Connecting to Google Drive — complete the login in the browser window that opened…</span>
         ) : (
           <span>
             Google Drive isn’t connected. Page images and library sync are unavailable until you reconnect.
-            {status.reason && <span className="ml-1 text-amber-600">({status.reason})</span>}
+            {status.reason && <span className="ml-1 opacity-80">({status.reason})</span>}
           </span>
         )}
       </div>
       {!connecting && (
-        <button
-          onClick={onConnect}
-          className="shrink-0 rounded-md bg-amber-600 px-3 py-1.5 font-medium text-white hover:bg-amber-700"
-        >
+        <Button variant="primary" size="sm" onClick={onConnect} className="shrink-0">
           Connect Drive
-        </button>
+        </Button>
       )}
     </div>
   );
