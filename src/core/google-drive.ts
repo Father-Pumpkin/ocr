@@ -263,16 +263,22 @@ export function startDriveConnect(): { started: boolean } {
 export async function getDriveAuthStatus(): Promise<{
   connected: boolean;
   connecting: boolean;
+  connectable: boolean;
   reason?: string;
 }> {
-  if (connectInFlight) return { connected: false, connecting: true };
+  // The interactive browser OAuth flow only works locally; the hosted app
+  // connects Drive via the GOOGLE_DRIVE_TOKEN secret instead, so the UI
+  // shouldn't show a (non-functional) Connect button there.
+  const connectable = process.env.NODE_ENV !== 'production';
+  if (connectInFlight) return { connected: false, connecting: true, connectable };
   try {
     await authenticate({ interactive: false });
-    return { connected: true, connecting: false };
+    return { connected: true, connecting: false, connectable };
   } catch (err) {
     return {
       connected: false,
       connecting: false,
+      connectable,
       reason: lastConnectError ?? (err instanceof Error ? err.message : String(err)),
     };
   }
