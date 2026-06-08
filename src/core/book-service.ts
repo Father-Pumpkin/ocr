@@ -13,6 +13,7 @@ import {
   getPages,
   updatePageTranscription,
   setPageTags,
+  getAllTags,
   hasAnyPageImage,
   insertPageAfter,
   deletePage,
@@ -183,6 +184,11 @@ export async function setPageTagsData(
   const page = await getSinglePage(book.id, pageNumber);
   if (!page) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
   return page;
+}
+
+/** Distinct tags used across the whole library — powers the tag picker. */
+export async function listTags(): Promise<string[]> {
+  return getAllTags();
 }
 
 /** Re-runs OCR on a single page using its cached image; returns the new row. */

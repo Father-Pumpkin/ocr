@@ -359,6 +359,19 @@ export class PostgresAdapter implements DatabaseAdapter {
     return result.count > 0;
   }
 
+  async getAllTags(): Promise<string[]> {
+    // tags is JSONB; expand each page's array to rows and dedupe.
+    const rows = await this.sql<{ tag: string }[]>`
+      SELECT DISTINCT t AS tag
+      FROM pages, jsonb_array_elements_text(pages.tags) AS t
+      WHERE jsonb_typeof(pages.tags) = 'array'
+    `;
+    return rows
+      .map((r) => r.tag.trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }
+
   async setPageQuality(bookId: number, pageNumber: number, quality: string, reason: string | null): Promise<boolean> {
     const result = await this.sql`
       UPDATE pages SET ocr_quality = ${quality}, ocr_quality_reason = ${reason}

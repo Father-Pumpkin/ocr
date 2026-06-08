@@ -340,6 +340,27 @@ export class SqliteAdapter implements DatabaseAdapter {
     return Promise.resolve(result.changes > 0);
   }
 
+  async getAllTags(): Promise<string[]> {
+    const rows = this.db
+      .prepare(`SELECT tags FROM pages WHERE tags IS NOT NULL AND tags != '[]'`)
+      .all() as { tags: string }[];
+    const set = new Set<string>();
+    for (const row of rows) {
+      try {
+        const arr = JSON.parse(row.tags);
+        if (Array.isArray(arr)) for (const t of arr) {
+          const s = String(t).trim();
+          if (s) set.add(s);
+        }
+      } catch {
+        /* skip malformed tags */
+      }
+    }
+    return Promise.resolve(
+      [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
+    );
+  }
+
   async setPageQuality(bookId: number, pageNumber: number, quality: string, reason: string | null): Promise<boolean> {
     const result = this.db.prepare(`
       UPDATE pages SET ocr_quality = ?, ocr_quality_reason = ?

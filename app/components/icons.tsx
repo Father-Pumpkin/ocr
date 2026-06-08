@@ -156,6 +156,19 @@ export const Pencil = (p: IconProps) => (
   </S>
 );
 
+export const X = (p: IconProps) => (
+  <S {...p}>
+    <path d="M18 6 6 18M6 6l12 12" />
+  </S>
+);
+
+export const Tag = (p: IconProps) => (
+  <S {...p}>
+    <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82Z" />
+    <circle cx="7.5" cy="7.5" r="1.5" />
+  </S>
+);
+
 export const Google = ({ className }: IconProps) => (
   <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
     <path

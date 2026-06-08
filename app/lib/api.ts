@@ -125,6 +125,8 @@ export const api = {
 
   getModels: () => request<{ models: string[]; default: string }>('/api/models'),
 
+  getTags: () => request<{ tags: string[] }>('/api/tags'),
+
   getDriveStatus: () => request<DriveStatus>('/api/auth/drive/status'),
   connectDrive: () => request<{ started: boolean }>('/api/auth/drive/connect', { method: 'POST' }),
   disconnectDrive: () => request<{ connected: boolean }>('/api/auth/drive/disconnect', { method: 'POST' }),

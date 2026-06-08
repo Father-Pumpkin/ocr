@@ -86,6 +86,8 @@ export interface DatabaseAdapter {
   getPages(bookId: number, pageStart?: number, pageEnd?: number): Promise<PageRow[]>;
   getPageByCustomId(batchCustomId: string): Promise<PageRow | undefined>;
   setPageTags(bookId: number, pageNumber: number, tags: string[]): Promise<boolean>;
+  /** Distinct tags used across every page in the library, for the tag picker. */
+  getAllTags(): Promise<string[]>;
   /** Stores an OCR quality verdict ('ok' | 'suspect') and reason for a page. */
   setPageQuality(bookId: number, pageNumber: number, quality: string, reason: string | null): Promise<boolean>;
   /** Sets a page's illustration-only flag. */
