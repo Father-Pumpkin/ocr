@@ -21,6 +21,7 @@ import {
   Picture,
 } from '../components/icons';
 import { SplitDialog } from '../components/SplitDialog';
+import { TagSelect } from '../components/TagSelect';
 
 function readAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -30,9 +31,6 @@ function readAsDataURL(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
-
-const inputClass =
-  'w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30';
 
 export function PageEditor() {
   const { name = '', n = '1' } = useParams();
@@ -46,7 +44,8 @@ export function PageEditor() {
 
   // Editable fields
   const [text, setText] = useState('');
-  const [tagsInput, setTagsInput] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [allTags, setAllTags] = useState<string[]>([]);
   const [imgError, setImgError] = useState(false);
   const [imageVersion, setImageVersion] = useState(0); // cache-bust after upload
   const [showOriginal, setShowOriginal] = useState(false);
@@ -110,10 +109,17 @@ export function PageEditor() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    api
+      .getTags()
+      .then((d) => setAllTags(d.tags))
+      .catch(() => {});
+  }, []);
+
   // Reset editable fields when the target page changes
   useEffect(() => {
     setText(page?.transcription ?? '');
-    setTagsInput(parseTags(page?.tags ?? '[]').join(', '));
+    setTags(parseTags(page?.tags ?? '[]'));
     setImgError(false);
     setShowOriginal(false);
     setActionError(null);
@@ -122,7 +128,9 @@ export function PageEditor() {
   }, [page]);
 
   const dirty =
-    page != null && (text !== (page.transcription ?? '') || tagsInput !== parseTags(page.tags).join(', '));
+    page != null &&
+    (text !== (page.transcription ?? '') ||
+      JSON.stringify([...tags].sort()) !== JSON.stringify([...parseTags(page.tags)].sort()));
 
   function applyUpdatedPage(updated: PageRow) {
     setPages((prev) => (prev ? prev.map((p) => (p.page_number === updated.page_number ? updated : p)) : prev));
@@ -146,9 +154,13 @@ export function PageEditor() {
     setSaving(true);
     setActionError(null);
     try {
-      const tags = tagsInput.split(',').map((t) => t.trim()).filter(Boolean);
       const { page: updated } = await api.updatePage(name, pageNumber, { transcription: text, tags });
       applyUpdatedPage(updated);
+      setAllTags((prev) =>
+        Array.from(new Set([...prev, ...tags])).sort((a, b) =>
+          a.localeCompare(b, undefined, { sensitivity: 'base' }),
+        ),
+      );
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), 2000);
     } catch (e) {
@@ -448,14 +460,11 @@ export function PageEditor() {
 
           <div>
             <Label>
-              Tags <span className="font-normal normal-case text-faint">(comma-separated)</span>
+              Tags <span className="font-normal normal-case text-faint">(pick or create)</span>
             </Label>
-            <input
-              value={tagsInput}
-              onChange={(e) => setTagsInput(e.target.value)}
-              placeholder="climax, inciting incident"
-              className={`mt-1.5 ${inputClass}`}
-            />
+            <div className="mt-1.5">
+              <TagSelect key={pageNumber} value={tags} onChange={setTags} suggestions={allTags} />
+            </div>
           </div>
 
           {actionError && <ErrorBox message={actionError} />}
