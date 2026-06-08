@@ -1,4 +1,5 @@
-import { getBookByName, setPageImage } from '../core/database.js';
+import { getBookByName } from '../core/database.js';
+import { writePageImageBase64 } from '../core/image-service.js';
 
 interface SetPageImageArgs {
   book_name: string;
@@ -12,6 +13,7 @@ export async function setPageImageTool(args: SetPageImageArgs): Promise<string> 
   const book = await getBookByName(book_name);
   if (!book) throw new Error(`Book not found: "${book_name}"`);
 
-  await setPageImage(book.id, page_number, image_base64);
+  const raw = image_base64.replace(/^data:[^;]+;base64,/, '').trim();
+  await writePageImageBase64(book.id, page_number, raw);
   return `Image saved for page ${page_number} of "${book.title}".`;
 }

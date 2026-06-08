@@ -8,7 +8,7 @@ function crop(img: LoadedImage, sx: number, sy: number, sw: number, sh: number):
   const canvas = createCanvas(sw, sh);
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-  return canvas.toBuffer('image/jpeg', 0.92).toString('base64');
+  return canvas.toBuffer('image/jpeg', 0.95).toString('base64');
 }
 
 /**

@@ -27,7 +27,8 @@
     "process-batches": "tsx scripts/process-batches.ts",
     "grade-all": "tsx scripts/grade-all.ts",
     "title-case": "tsx scripts/title-case-pass.ts",
-    "reocr-suspects": "tsx scripts/reocr-suspects.ts"
+    "reocr-suspects": "tsx scripts/reocr-suspects.ts",
+    "migrate-images": "tsx scripts/migrate-images-to-r2.ts"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -53,6 +54,7 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.10.1",
     "@napi-rs/canvas": "^0.1.57",
+    "aws4fetch": "^1.0.20",
     "better-sqlite3": "^12.10.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
