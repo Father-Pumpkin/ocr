@@ -4,7 +4,22 @@ import { api, ApiError } from '../lib/api';
 import type { BookRow, PageRow } from '../types';
 import { parseTags } from '../types';
 import { Loading, ErrorBox, EmptyState, Button, IconButton, Label, Badge } from '../components/ui';
-import { ChevronLeft, ChevronRight, Alert, Check, Upload, Refresh, ShieldCheck, Plus, Trash, ImageOff, Columns } from '../components/icons';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Alert,
+  Check,
+  Upload,
+  Refresh,
+  ShieldCheck,
+  Plus,
+  Trash,
+  ImageOff,
+  Columns,
+  Copy,
+  Undo,
+  Picture,
+} from '../components/icons';
 import { SplitDialog } from '../components/SplitDialog';
 
 function readAsDataURL(file: File): Promise<string> {
@@ -42,18 +57,32 @@ export function PageEditor() {
 
   // Action states
   const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [retranscribing, setRetranscribing] = useState(false);
   const [inserting, setInserting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [checking, setChecking] = useState(false);
   const [markingOk, setMarkingOk] = useState(false);
+  const [togglingIllo, setTogglingIllo] = useState(false);
   const [splitOpen, setSplitOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const page = useMemo(() => pages?.find((p) => p.page_number === pageNumber) ?? null, [pages, pageNumber]);
   const hasPrev = !!pages?.some((p) => p.page_number === pageNumber - 1);
   const hasNext = !!pages?.some((p) => p.page_number === pageNumber + 1);
+
+  // Next suspect page after this one (wraps around); null if none flagged.
+  const nextFlagged = useMemo(() => {
+    if (!pages) return null;
+    const flagged = pages
+      .filter((p) => p.ocr_quality === 'suspect')
+      .map((p) => p.page_number)
+      .sort((a, b) => a - b);
+    if (flagged.length === 0) return null;
+    return flagged.find((num) => num > pageNumber) ?? flagged[0];
+  }, [pages, pageNumber]);
 
   const load = useCallback(() => {
     setPages(null);
@@ -88,6 +117,8 @@ export function PageEditor() {
     setImgError(false);
     setShowOriginal(false);
     setActionError(null);
+    setSavedFlash(false);
+    setCopied(false);
   }, [page]);
 
   const dirty =
@@ -97,13 +128,19 @@ export function PageEditor() {
     setPages((prev) => (prev ? prev.map((p) => (p.page_number === updated.page_number ? updated : p)) : prev));
   }
 
+  /** Returns false if there are unsaved edits the user chooses not to discard. */
+  function guardDirty(): boolean {
+    return !dirty || window.confirm('You have unsaved changes that will be lost. Continue?');
+  }
+
   /** Navigate, warning first if there are unsaved edits. */
   function go(to: string) {
     if (dirty && !window.confirm('Discard unsaved changes to this page?')) return;
     navigate(to);
   }
 
-  const busy = saving || retranscribing || inserting || deleting || uploading || checking || markingOk;
+  const busy =
+    saving || retranscribing || inserting || deleting || uploading || checking || markingOk || togglingIllo;
 
   async function onSave() {
     setSaving(true);
@@ -112,6 +149,8 @@ export function PageEditor() {
       const tags = tagsInput.split(',').map((t) => t.trim()).filter(Boolean);
       const { page: updated } = await api.updatePage(name, pageNumber, { transcription: text, tags });
       applyUpdatedPage(updated);
+      setSavedFlash(true);
+      window.setTimeout(() => setSavedFlash(false), 2000);
     } catch (e) {
       setActionError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -119,10 +158,24 @@ export function PageEditor() {
     }
   }
 
+  async function onCopy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setActionError('Could not copy to clipboard.');
+    }
+  }
+
+  function onRestoreOriginal() {
+    if (page?.original_transcription != null) setText(page.original_transcription);
+  }
+
   async function onRetranscribe() {
     if (
-      page?.is_edited &&
-      !window.confirm('This page has manual edits. Re-transcribing will replace the current text with a fresh OCR. Continue?')
+      (dirty || page?.is_edited) &&
+      !window.confirm('Re-transcribing replaces the current text with fresh OCR. Any edits will be lost. Continue?')
     ) {
       return;
     }
@@ -165,13 +218,30 @@ export function PageEditor() {
     }
   }
 
-  async function onInsertAfter() {
+  async function onToggleIllustration() {
+    if (!page) return;
+    if (!guardDirty()) return;
+    setTogglingIllo(true);
+    setActionError(null);
+    try {
+      const { page: updated } = await api.setIllustration(name, pageNumber, !page.has_illustration);
+      applyUpdatedPage(updated);
+      setText(updated.transcription ?? '');
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setTogglingIllo(false);
+    }
+  }
+
+  async function onInsert(after: number, gotoPage: number) {
+    if (!guardDirty()) return;
     setInserting(true);
     setActionError(null);
     try {
-      await api.insertPage(name, pageNumber);
+      await api.insertPage(name, after);
       load();
-      navigate(`/book/${encodeURIComponent(name)}/page/${pageNumber + 1}`);
+      navigate(`/book/${encodeURIComponent(name)}/page/${gotoPage}`);
     } catch (e) {
       setActionError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -221,6 +291,7 @@ export function PageEditor() {
   const driveUrl = book ? `https://drive.google.com/file/d/${book.drive_file_id}/view` : null;
   const imageUrl = `${api.pageImageUrl(name, pageNumber)}?v=${imageVersion}`;
   const original = page.original_transcription;
+  const isIllustration = page.has_illustration;
 
   return (
     <div>
@@ -241,6 +312,17 @@ export function PageEditor() {
           <span className="text-ink">Page {pageNumber}</span>
         </nav>
         <div className="flex items-center gap-2">
+          {nextFlagged != null && nextFlagged !== pageNumber && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => go(`/book/${encodeURIComponent(name)}/page/${nextFlagged}`)}
+              title="Jump to the next flagged page"
+            >
+              <Alert className="h-3.5 w-3.5 text-warn" />
+              Next flagged
+            </Button>
+          )}
           <IconButton
             onClick={() => go(`/book/${encodeURIComponent(name)}/page/${pageNumber - 1}`)}
             disabled={!hasPrev}
@@ -263,7 +345,7 @@ export function PageEditor() {
           <Alert className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
             <span className="font-semibold">This transcription looks suspect.</span> {page.ocr_quality_reason}{' '}
-            Consider re-transcribing with a stronger model (e.g. Opus) using the picker below.
+            Re-transcribe with a stronger model, or click <span className="font-medium">Mark OK</span> if it's fine.
           </p>
         </div>
       )}
@@ -310,7 +392,7 @@ export function PageEditor() {
 
         {/* Editor */}
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <Label>Transcription</Label>
             <span className="flex items-center gap-2">
               {page.ocr_quality === 'ok' && (
@@ -319,7 +401,16 @@ export function PageEditor() {
                   checked
                 </Badge>
               )}
+              {isIllustration && <Badge tone="neutral">illustration</Badge>}
               {page.is_edited && <Badge tone="accent">edited</Badge>}
+              <button
+                onClick={onCopy}
+                title="Copy transcription to clipboard"
+                className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-ink"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                {copied ? 'Copied' : 'Copy'}
+              </button>
             </span>
           </div>
           <textarea
@@ -331,19 +422,27 @@ export function PageEditor() {
 
           {/* Original OCR (research) */}
           {original != null && original !== text && (
-            <div>
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowOriginal((s) => !s)}
                 className="text-xs text-muted transition-colors hover:text-ink"
               >
                 {showOriginal ? '▾ Hide original OCR' : '▸ View original OCR'}
               </button>
-              {showOriginal && (
-                <pre className="mt-1.5 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs text-muted">
-                  {original}
-                </pre>
-              )}
+              <button
+                onClick={onRestoreOriginal}
+                className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-ink"
+                title="Replace the text with the original machine OCR (you can still edit before saving)"
+              >
+                <Undo className="h-3.5 w-3.5" />
+                Restore original
+              </button>
             </div>
+          )}
+          {showOriginal && original != null && (
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs text-muted">
+              {original}
+            </pre>
           )}
 
           <div>
@@ -365,6 +464,12 @@ export function PageEditor() {
             <Button variant="primary" onClick={onSave} disabled={!dirty || busy}>
               {saving ? 'Saving…' : 'Save'}
             </Button>
+            {savedFlash && (
+              <span className="inline-flex items-center gap-1 text-xs text-ok">
+                <Check className="h-3.5 w-3.5" />
+                Saved
+              </span>
+            )}
             <Button variant="secondary" onClick={onRetranscribe} disabled={busy}>
               <Refresh className="h-4 w-4" />
               {retranscribing ? 'Re-transcribing…' : 'Re-transcribe'}
@@ -382,24 +487,54 @@ export function PageEditor() {
                 </option>
               ))}
             </select>
-            <Button variant="secondary" onClick={onCheckQuality} disabled={busy} title="Cheap Sonnet proofreader check on this page">
+          </div>
+
+          {/* Quality / classification */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={onCheckQuality} disabled={busy} title="Cheap Sonnet proofreader check">
               <ShieldCheck className="h-4 w-4" />
               {checking ? 'Checking…' : 'Check quality'}
             </Button>
             {page.ocr_quality !== 'ok' && (
-              <Button variant="secondary" onClick={onMarkOk} disabled={busy} title="Accept this transcription and clear any suspect flag">
+              <Button variant="secondary" size="sm" onClick={onMarkOk} disabled={busy} title="Accept this transcription and clear any suspect flag">
                 <Check className="h-4 w-4" />
                 {markingOk ? 'Marking…' : 'Mark OK'}
               </Button>
             )}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onToggleIllustration}
+              disabled={busy}
+              title={isIllustration ? 'Treat this as a normal text page' : 'Mark this page as illustration-only'}
+            >
+              <Picture className="h-4 w-4" />
+              {togglingIllo ? '…' : isIllustration ? 'Unmark illustration' : 'Mark illustration'}
+            </Button>
           </div>
 
           {/* Page management */}
           <div className="mt-1 flex flex-wrap items-center gap-2 border-t border-border pt-3">
             <Label className="mr-1">Page</Label>
-            <Button variant="secondary" size="sm" onClick={onInsertAfter} disabled={busy}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => onInsert(pageNumber - 1, pageNumber)}
+              disabled={busy}
+              title="Insert a blank page before this one"
+            >
               <Plus className="h-4 w-4" />
-              {inserting ? 'Inserting…' : 'Insert blank after'}
+              Insert before
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => onInsert(pageNumber, pageNumber + 1)}
+              disabled={busy}
+              title="Insert a blank page after this one"
+            >
+              <Plus className="h-4 w-4" />
+              Insert after
             </Button>
             <Button
               variant="secondary"

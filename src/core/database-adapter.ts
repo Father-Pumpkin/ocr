@@ -88,6 +88,8 @@ export interface DatabaseAdapter {
   setPageTags(bookId: number, pageNumber: number, tags: string[]): Promise<boolean>;
   /** Stores an OCR quality verdict ('ok' | 'suspect') and reason for a page. */
   setPageQuality(bookId: number, pageNumber: number, quality: string, reason: string | null): Promise<boolean>;
+  /** Sets a page's illustration-only flag. */
+  setPageIllustration(bookId: number, pageNumber: number, isIllustration: boolean): Promise<boolean>;
   hasExistingTranscription(bookId: number, pageNumber: number): Promise<boolean>;
 
   // Batch jobs

@@ -1,10 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import type { PageRow } from '../types';
 import { parseTags } from '../types';
-import { Loading, ErrorBox, EmptyState, Card, Button, Badge } from '../components/ui';
-import { ChevronLeft, ShieldCheck, Alert, ImageOff } from '../components/icons';
+import { Loading, ErrorBox, EmptyState, Card, Button, IconButton, Badge } from '../components/ui';
+import { ChevronLeft, ShieldCheck, Alert, ImageOff, Download, Pencil, Check } from '../components/icons';
 
 function snippet(page: PageRow): string {
   if (page.has_illustration) return '[illustration]';
@@ -13,20 +13,35 @@ function snippet(page: PageRow): string {
   return t.length > 120 ? t.slice(0, 120) + '…' : t;
 }
 
+type BookMeta = { title: string; ocr_quality: string | null; ocr_quality_note: string | null };
+
 export function BookDetail() {
   const { name = '' } = useParams();
-  const [book, setBook] = useState<{ title: string; ocr_quality: string | null; ocr_quality_note: string | null } | null>(null);
+  const navigate = useNavigate();
+  const [book, setBook] = useState<BookMeta | null>(null);
   const [pages, setPages] = useState<PageRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [checking, setChecking] = useState(false);
   const [checkMsg, setCheckMsg] = useState<string | null>(null);
+  const [opError, setOpError] = useState<string | null>(null);
+
+  // Rename
+  const [renaming, setRenaming] = useState(false);
+  const [titleInput, setTitleInput] = useState('');
+  const [savingTitle, setSavingTitle] = useState(false);
+
+  // Filter
+  const [onlyFlagged, setOnlyFlagged] = useState(false);
 
   useEffect(() => {
     setPages(null);
     setError(null);
     setNotFound(false);
     setCheckMsg(null);
+    setOpError(null);
+    setRenaming(false);
+    setOnlyFlagged(false);
     api
       .getBookPages(name)
       .then((d) => {
@@ -38,6 +53,15 @@ export function BookDetail() {
         else setError(e.message ?? String(e));
       });
   }, [name]);
+
+  const flaggedCount = useMemo(
+    () => (pages ?? []).filter((p) => p.ocr_quality === 'suspect').length,
+    [pages],
+  );
+  const visiblePages = useMemo(
+    () => (onlyFlagged ? (pages ?? []).filter((p) => p.ocr_quality === 'suspect') : pages ?? []),
+    [pages, onlyFlagged],
+  );
 
   async function onCheck() {
     setChecking(true);
@@ -54,6 +78,41 @@ export function BookDetail() {
     }
   }
 
+  async function saveRename() {
+    const next = titleInput.trim();
+    if (!next || next === (book?.title ?? name)) {
+      setRenaming(false);
+      return;
+    }
+    setSavingTitle(true);
+    setOpError(null);
+    try {
+      await api.renameBook(name, next);
+      navigate(`/book/${encodeURIComponent(next)}`);
+    } catch (e) {
+      setOpError(`Rename failed: ${e instanceof ApiError ? e.message : String(e)}`);
+      setSavingTitle(false);
+      setRenaming(false);
+    }
+  }
+
+  function exportTxt() {
+    if (!pages || !book) return;
+    const body = pages
+      .map((p) => {
+        const t = p.has_illustration ? '[ILLUSTRATION]' : (p.transcription ?? '').trimEnd();
+        return `--- Page ${p.page_number} ---\n${t}`;
+      })
+      .join('\n\n');
+    const blob = new Blob([`${book.title}\n\n${body}\n`], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${book.title.replace(/[^\w\d\- ]+/g, '').trim() || 'transcription'}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div>
       <Link to="/" className="inline-flex items-center gap-1 text-sm text-muted transition-colors hover:text-ink">
@@ -61,23 +120,70 @@ export function BookDetail() {
       </Link>
 
       <div className="mb-5 mt-2 flex flex-wrap items-start justify-between gap-4">
-        <h1 className="font-serif text-3xl font-semibold tracking-tight text-ink">{book?.title ?? name}</h1>
+        {renaming ? (
+          <div className="flex items-center gap-2">
+            <input
+              autoFocus
+              value={titleInput}
+              onChange={(e) => setTitleInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveRename();
+                if (e.key === 'Escape') setRenaming(false);
+              }}
+              className="w-72 rounded-lg border border-border bg-surface px-3 py-1.5 font-serif text-xl text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            />
+            <Button variant="primary" size="sm" onClick={saveRename} disabled={savingTitle}>
+              {savingTitle ? 'Saving…' : 'Save'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setRenaming(false)} disabled={savingTitle}>
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <h1 className="font-serif text-3xl font-semibold tracking-tight text-ink">{book?.title ?? name}</h1>
+            <IconButton
+              className="h-8 w-8"
+              aria-label="Rename book"
+              title="Rename book"
+              onClick={() => {
+                setTitleInput(book?.title ?? name);
+                setRenaming(true);
+              }}
+            >
+              <Pencil className="h-4 w-4" />
+            </IconButton>
+          </div>
+        )}
+
         {pages && pages.length > 0 && (
           <div className="flex flex-col items-end gap-1.5">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={onCheck}
-              disabled={checking}
-              title="Run a cheap Sonnet proofreader over every page to flag garbled OCR"
-            >
-              <ShieldCheck className="h-4 w-4" />
-              {checking ? 'Checking…' : 'Check OCR quality'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" size="sm" onClick={exportTxt} title="Download the full transcription as a .txt">
+                <Download className="h-4 w-4" />
+                Download
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onCheck}
+                disabled={checking}
+                title="Run a cheap Sonnet proofreader over every page"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                {checking ? 'Checking…' : 'Check OCR quality'}
+              </Button>
+            </div>
             {checkMsg && <span className="text-xs text-muted">{checkMsg}</span>}
           </div>
         )}
       </div>
+
+      {opError && (
+        <div className="mb-4">
+          <ErrorBox message={opError} />
+        </div>
+      )}
 
       {book?.ocr_quality === 'bad' && (
         <Banner tone="danger">
@@ -100,11 +206,31 @@ export function BookDetail() {
       {pages && pages.length === 0 && <EmptyState>No pages stored for this book.</EmptyState>}
 
       {pages && pages.length > 0 && (
-        <Card className="divide-y divide-border overflow-hidden">
-          {pages.map((p) => (
-            <PageRowItem key={p.id} book={name} page={p} />
-          ))}
-        </Card>
+        <>
+          {flaggedCount > 0 && (
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm text-muted">
+                {pages.length} pages · {flaggedCount} flagged
+              </span>
+              <button
+                onClick={() => setOnlyFlagged((v) => !v)}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+                  onlyFlagged
+                    ? 'border-warn/40 bg-warn-soft text-warn'
+                    : 'border-border bg-surface text-muted hover:text-ink'
+                }`}
+              >
+                <Alert className="h-3.5 w-3.5" />
+                {onlyFlagged ? 'Showing flagged only' : 'Show only flagged'}
+              </button>
+            </div>
+          )}
+          <Card className="divide-y divide-border overflow-hidden">
+            {visiblePages.map((p) => (
+              <PageRowItem key={p.id} book={name} page={p} />
+            ))}
+          </Card>
+        </>
       )}
     </div>
   );
@@ -139,6 +265,11 @@ function PageRowItem({ book, page }: { book: string; page: PageRow }) {
         <span className="w-6 shrink-0 text-right font-serif text-sm text-faint">{page.page_number}</span>
         <span className="min-w-0 flex-1 truncate text-sm text-ink">{snippet(page)}</span>
         <span className="flex shrink-0 items-center gap-1.5">
+          {page.ocr_quality === 'ok' && (
+            <Badge tone="ok">
+              <Check className="h-3 w-3" />
+            </Badge>
+          )}
           {suspect && (
             <Badge tone="warn">
               <Alert className="h-3 w-3" />
