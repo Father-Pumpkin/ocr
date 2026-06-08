@@ -563,6 +563,8 @@ export function PageEditor() {
           onClose={() => setSplitOpen(false)}
           onDone={() => {
             setSplitOpen(false);
+            setImgError(false);
+            setImageVersion((v) => v + 1); // cache-bust so the new split image loads
             load();
           }}
         />

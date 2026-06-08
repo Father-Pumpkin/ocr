@@ -8,7 +8,9 @@ function crop(img: LoadedImage, sx: number, sy: number, sw: number, sh: number):
   const canvas = createCanvas(sw, sh);
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-  return canvas.toBuffer('image/jpeg', 0.95).toString('base64');
+  // Use toDataURL (quality on a 0–1 scale, like render-pdf) — @napi-rs/canvas's
+  // toBuffer reads JPEG quality as 0–100, so passing 0.95 there yields ~1% quality.
+  return canvas.toDataURL('image/jpeg', 0.95).replace(/^data:image\/jpeg;base64,/, '');
 }
 
 /**
