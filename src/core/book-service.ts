@@ -25,7 +25,8 @@ import {
 import { listPdfsInFolder, downloadPdf, type DriveFile } from './google-drive.js';
 import { renderAllPdfPages } from './render-pdf.js';
 import { transcribeSinglePageImage, DEFAULT_MODEL } from './ocr.js';
-import { verifyBookById, verifyPageById } from './quality.js';
+import { verifyBookById, verifyPageById, markPageOkById } from './quality.js';
+import { splitImageHorizontally } from './image-split.js';
 
 export { getDriveAuthStatus, startDriveConnect, clearAuth } from './google-drive.js';
 
@@ -256,4 +257,49 @@ export async function verifyBookData(
 ): Promise<{ total: number; flagged: number; quality: string; note: string | null; pages: PageRow[] }> {
   const book = await requireBook(bookName);
   return verifyBookById(book.id);
+}
+
+/** Manually accept a page's OCR (clears the suspect flag); re-rolls the book verdict. */
+export async function markPageOkData(bookName: string, pageNumber: number): Promise<PageRow> {
+  const book = await requireBook(bookName);
+  const page = await markPageOkById(book.id, pageNumber);
+  if (!page) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
+  return page;
+}
+
+/**
+ * Splits a two-page spread into two pages at `ratio` of the image width. The
+ * current page keeps the left half + leftText; a new page after it gets the
+ * right half + rightText. Both are marked edited. Returns the two page rows.
+ */
+export async function splitPageData(
+  bookName: string,
+  pageNumber: number,
+  leftText: string,
+  rightText: string,
+  ratio = 0.5,
+): Promise<{ left: PageRow; right: PageRow }> {
+  const book = await requireBook(bookName);
+  const { imageData } = await getPageImageData(bookName, pageNumber);
+
+  let leftImg: string | null = null;
+  let rightImg: string | null = null;
+  if (imageData) {
+    const halves = await splitImageHorizontally(imageData, ratio);
+    leftImg = halves.left;
+    rightImg = halves.right;
+  }
+
+  // Make room: a blank page becomes pageNumber + 1 (later pages shift down).
+  await insertPageAfter(book.id, pageNumber);
+
+  await updatePageTranscription(book.id, pageNumber, leftText, true);
+  await updatePageTranscription(book.id, pageNumber + 1, rightText, true);
+  if (leftImg) await setPageImage(book.id, pageNumber, leftImg);
+  if (rightImg) await setPageImage(book.id, pageNumber + 1, rightImg);
+
+  const left = await getSinglePage(book.id, pageNumber);
+  const right = await getSinglePage(book.id, pageNumber + 1);
+  if (!left || !right) throw new NotFoundError(`Failed to split page ${pageNumber} in "${book.title}".`);
+  return { left, right };
 }
