@@ -106,41 +106,46 @@ export function BookDetail() {
         <ul className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white">
           {pages.map((p) => {
             const tags = parseTags(p.tags);
+            const suspect = p.ocr_quality === 'suspect';
             return (
               <li key={p.id} className="hover:bg-slate-50">
                 <Link
                   to={`/book/${encodeURIComponent(name)}/page/${p.page_number}`}
-                  className="flex items-center gap-4 px-4 py-3"
+                  className="block px-4 py-3"
                 >
-                  <span className="w-10 shrink-0 text-sm font-medium text-slate-400">
-                    {p.page_number}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
-                    {snippet(p)}
-                  </span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    {p.ocr_quality === 'suspect' && (
-                      <span
-                        title={p.ocr_quality_reason ?? 'Possible OCR error'}
-                        className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700"
-                      >
-                        ⚠ check
-                      </span>
-                    )}
-                    {p.is_edited && (
-                      <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">
-                        edited
-                      </span>
-                    )}
-                    {tags.map((t) => (
-                      <span
-                        key={t}
-                        className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600"
-                      >
-                        {t}
-                      </span>
-                    ))}
-                  </span>
+                  <div className="flex items-center gap-4">
+                    <span className="w-10 shrink-0 text-sm font-medium text-slate-400">
+                      {p.page_number}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
+                      {snippet(p)}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      {suspect && (
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700">
+                          ⚠ check
+                        </span>
+                      )}
+                      {p.is_edited && (
+                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">
+                          edited
+                        </span>
+                      )}
+                      {tags.map((t) => (
+                        <span
+                          key={t}
+                          className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </span>
+                  </div>
+                  {suspect && p.ocr_quality_reason && (
+                    <p className="mt-1.5 pl-14 text-xs leading-snug text-amber-700">
+                      {p.ocr_quality_reason}
+                    </p>
+                  )}
                 </Link>
               </li>
             );
