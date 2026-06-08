@@ -115,6 +115,13 @@ export const Search = (p: IconProps) => (
   </S>
 );
 
+export const Columns = (p: IconProps) => (
+  <S {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M12 4v16" />
+  </S>
+);
+
 export const Google = ({ className }: IconProps) => (
   <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
     <path

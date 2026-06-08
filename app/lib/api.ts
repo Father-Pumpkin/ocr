@@ -170,4 +170,13 @@ export const api = {
 
   deletePage: (name: string, n: number) =>
     request<{ ok: true }>(`/api/books/${enc(name)}/pages/${n}`, { method: 'DELETE' }),
+
+  markPageOk: (name: string, n: number) =>
+    request<{ page: PageRow }>(`/api/books/${enc(name)}/pages/${n}/mark-ok`, { method: 'POST' }),
+
+  splitPage: (name: string, n: number, body: { leftText: string; rightText: string; ratio: number }) =>
+    request<{ left: PageRow; right: PageRow }>(`/api/books/${enc(name)}/pages/${n}/split`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };

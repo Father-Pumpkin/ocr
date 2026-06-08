@@ -4,7 +4,8 @@ import { api, ApiError } from '../lib/api';
 import type { BookRow, PageRow } from '../types';
 import { parseTags } from '../types';
 import { Loading, ErrorBox, EmptyState, Button, IconButton, Label, Badge } from '../components/ui';
-import { ChevronLeft, ChevronRight, Alert, Check, Upload, Refresh, ShieldCheck, Plus, Trash, ImageOff } from '../components/icons';
+import { ChevronLeft, ChevronRight, Alert, Check, Upload, Refresh, ShieldCheck, Plus, Trash, ImageOff, Columns } from '../components/icons';
+import { SplitDialog } from '../components/SplitDialog';
 
 function readAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -46,6 +47,8 @@ export function PageEditor() {
   const [deleting, setDeleting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [markingOk, setMarkingOk] = useState(false);
+  const [splitOpen, setSplitOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const page = useMemo(() => pages?.find((p) => p.page_number === pageNumber) ?? null, [pages, pageNumber]);
@@ -100,7 +103,7 @@ export function PageEditor() {
     navigate(to);
   }
 
-  const busy = saving || retranscribing || inserting || deleting || uploading || checking;
+  const busy = saving || retranscribing || inserting || deleting || uploading || checking || markingOk;
 
   async function onSave() {
     setSaving(true);
@@ -146,6 +149,19 @@ export function PageEditor() {
       setActionError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setChecking(false);
+    }
+  }
+
+  async function onMarkOk() {
+    setMarkingOk(true);
+    setActionError(null);
+    try {
+      const { page: updated } = await api.markPageOk(name, pageNumber);
+      applyUpdatedPage(updated);
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setMarkingOk(false);
     }
   }
 
@@ -370,6 +386,12 @@ export function PageEditor() {
               <ShieldCheck className="h-4 w-4" />
               {checking ? 'Checking…' : 'Check quality'}
             </Button>
+            {page.ocr_quality !== 'ok' && (
+              <Button variant="secondary" onClick={onMarkOk} disabled={busy} title="Accept this transcription and clear any suspect flag">
+                <Check className="h-4 w-4" />
+                {markingOk ? 'Marking…' : 'Mark OK'}
+              </Button>
+            )}
           </div>
 
           {/* Page management */}
@@ -379,6 +401,16 @@ export function PageEditor() {
               <Plus className="h-4 w-4" />
               {inserting ? 'Inserting…' : 'Insert blank after'}
             </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setSplitOpen(true)}
+              disabled={busy}
+              title="Split this spread into two pages at the gutter"
+            >
+              <Columns className="h-4 w-4" />
+              Split page
+            </Button>
             <Button variant="danger" size="sm" onClick={onDelete} disabled={busy}>
               <Trash className="h-4 w-4" />
               {deleting ? 'Deleting…' : 'Delete page'}
@@ -386,6 +418,20 @@ export function PageEditor() {
           </div>
         </div>
       </div>
+
+      {splitOpen && (
+        <SplitDialog
+          bookName={name}
+          pageNumber={pageNumber}
+          imageSrc={imageUrl}
+          initialText={text}
+          onClose={() => setSplitOpen(false)}
+          onDone={() => {
+            setSplitOpen(false);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }

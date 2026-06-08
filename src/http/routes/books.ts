@@ -10,6 +10,8 @@ import {
   deletePageData,
   verifyPageData,
   verifyBookData,
+  markPageOkData,
+  splitPageData,
   NotFoundError,
   AuthRequiredError,
 } from '../../core/book-service.js';
@@ -160,6 +162,34 @@ booksRouter.delete('/books/:name/pages/:n', async (req, res) => {
   try {
     await deletePageData(bookName(req), pageNum(req));
     res.json({ ok: true });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+// POST /api/books/:name/pages/:n/mark-ok — manually accept a page's OCR
+booksRouter.post('/books/:name/pages/:n/mark-ok', async (req, res) => {
+  try {
+    const page = await markPageOkData(bookName(req), pageNum(req));
+    res.json({ page });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+// POST /api/books/:name/pages/:n/split — split a spread into two pages
+booksRouter.post('/books/:name/pages/:n/split', async (req, res) => {
+  try {
+    const { leftText, rightText, ratio } = req.body ?? {};
+    const r = typeof ratio === 'number' && Number.isFinite(ratio) ? ratio : 0.5;
+    const result = await splitPageData(
+      bookName(req),
+      pageNum(req),
+      String(leftText ?? ''),
+      String(rightText ?? ''),
+      r,
+    );
+    res.json(result);
   } catch (err) {
     handleError(err, res);
   }

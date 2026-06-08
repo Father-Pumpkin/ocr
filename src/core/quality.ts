@@ -82,3 +82,19 @@ export async function verifyPageById(bookId: number, pageNumber: number): Promis
   await scoreAndStoreBook(bookId, merged);
   return updated;
 }
+
+/**
+ * Manually mark a page's OCR as acceptable (user accepts a flagged or unchecked
+ * transcription), clearing any suspect reason, then recompute the book verdict.
+ * Returns the updated page, or null if the page doesn't exist.
+ */
+export async function markPageOkById(bookId: number, pageNumber: number): Promise<PageRow | null> {
+  const pages = await getPages(bookId);
+  const target = pages.find((p) => p.page_number === pageNumber);
+  if (!target) return null;
+  await setPageQuality(bookId, pageNumber, 'ok', null);
+  const updated: PageRow = { ...target, ocr_quality: 'ok', ocr_quality_reason: null };
+  const merged = pages.map((p) => (p.page_number === pageNumber ? updated : p));
+  await scoreAndStoreBook(bookId, merged);
+  return updated;
+}
