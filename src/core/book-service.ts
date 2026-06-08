@@ -19,6 +19,8 @@ import {
   hasAnyPageImage,
   insertPageAfter,
   deletePage,
+  setBookTitle,
+  setPageIllustration,
   type BookRow,
   type PageRow,
 } from './database.js';
@@ -302,4 +304,34 @@ export async function splitPageData(
   const right = await getSinglePage(book.id, pageNumber + 1);
   if (!left || !right) throw new NotFoundError(`Failed to split page ${pageNumber} in "${book.title}".`);
   return { left, right };
+}
+
+/** Renames a book (its display title). Returns the updated book row. */
+export async function renameBookData(bookName: string, newTitle: string): Promise<BookRow> {
+  const book = await requireBook(bookName);
+  const title = newTitle.trim();
+  await setBookTitle(book.id, title);
+  return (await getBookByName(title)) ?? { ...book, title };
+}
+
+/** Toggles a page's illustration-only flag; sets '[ILLUSTRATION]' text when on. */
+export async function setPageIllustrationData(
+  bookName: string,
+  pageNumber: number,
+  isIllustration: boolean,
+): Promise<PageRow> {
+  const book = await requireBook(bookName);
+  const ok = await setPageIllustration(book.id, pageNumber, isIllustration);
+  if (!ok) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
+  if (isIllustration) {
+    await updatePageTranscription(book.id, pageNumber, '[ILLUSTRATION]', true);
+  } else {
+    const current = await getSinglePage(book.id, pageNumber);
+    if (current && (current.transcription ?? '').trim() === '[ILLUSTRATION]') {
+      await updatePageTranscription(book.id, pageNumber, '', true);
+    }
+  }
+  const page = await getSinglePage(book.id, pageNumber);
+  if (!page) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
+  return page;
 }

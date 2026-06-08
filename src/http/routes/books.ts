@@ -12,6 +12,8 @@ import {
   verifyBookData,
   markPageOkData,
   splitPageData,
+  renameBookData,
+  setPageIllustrationData,
   NotFoundError,
   AuthRequiredError,
 } from '../../core/book-service.js';
@@ -190,6 +192,32 @@ booksRouter.post('/books/:name/pages/:n/split', async (req, res) => {
       r,
     );
     res.json(result);
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+// PATCH /api/books/:name — rename a book (its display title)
+booksRouter.patch('/books/:name', async (req, res) => {
+  try {
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+    if (!title) {
+      res.status(400).json({ error: 'title (a non-empty string) is required.' });
+      return;
+    }
+    const book = await renameBookData(bookName(req), title);
+    res.json({ book });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+// POST /api/books/:name/pages/:n/illustration — toggle the illustration-only flag
+booksRouter.post('/books/:name/pages/:n/illustration', async (req, res) => {
+  try {
+    const isIllustration = Boolean(req.body?.isIllustration);
+    const page = await setPageIllustrationData(bookName(req), pageNum(req), isIllustration);
+    res.json({ page });
   } catch (err) {
     handleError(err, res);
   }

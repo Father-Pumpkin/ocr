@@ -341,6 +341,14 @@ export class SqliteAdapter implements DatabaseAdapter {
     return Promise.resolve(result.changes > 0);
   }
 
+  async setPageIllustration(bookId: number, pageNumber: number, isIllustration: boolean): Promise<boolean> {
+    const result = this.db.prepare(`
+      UPDATE pages SET has_illustration = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE book_id = ? AND page_number = ?
+    `).run(isIllustration ? 1 : 0, bookId, pageNumber);
+    return Promise.resolve(result.changes > 0);
+  }
+
   async hasExistingTranscription(bookId: number, pageNumber: number): Promise<boolean> {
     const row = this.db.prepare('SELECT transcription FROM pages WHERE book_id = ? AND page_number = ?').get(bookId, pageNumber) as { transcription: string | null } | undefined;
     return Promise.resolve(!!(row?.transcription));

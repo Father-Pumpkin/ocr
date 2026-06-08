@@ -179,4 +179,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  renameBook: (name: string, title: string) =>
+    request<{ book: BookRow }>(`/api/books/${enc(name)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
+
+  setIllustration: (name: string, n: number, isIllustration: boolean) =>
+    request<{ page: PageRow }>(`/api/books/${enc(name)}/pages/${n}/illustration`, {
+      method: 'POST',
+      body: JSON.stringify({ isIllustration }),
+    }),
 };

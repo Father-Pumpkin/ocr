@@ -364,6 +364,14 @@ export class PostgresAdapter implements DatabaseAdapter {
     return result.count > 0;
   }
 
+  async setPageIllustration(bookId: number, pageNumber: number, isIllustration: boolean): Promise<boolean> {
+    const result = await this.sql`
+      UPDATE pages SET has_illustration = ${isIllustration}, updated_at = NOW()
+      WHERE book_id = ${bookId} AND page_number = ${pageNumber}
+    `;
+    return result.count > 0;
+  }
+
   async hasExistingTranscription(bookId: number, pageNumber: number): Promise<boolean> {
     const rows = await this.sql<{ transcription: string | null }[]>`
       SELECT transcription FROM pages WHERE book_id = ${bookId} AND page_number = ${pageNumber}

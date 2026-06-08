@@ -122,6 +122,40 @@ export const Columns = (p: IconProps) => (
   </S>
 );
 
+export const Copy = (p: IconProps) => (
+  <S {...p}>
+    <rect x="9" y="9" width="13" height="13" rx="2" />
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+  </S>
+);
+
+export const Undo = (p: IconProps) => (
+  <S {...p}>
+    <path d="M3 7v6h6" />
+    <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+  </S>
+);
+
+export const Picture = (p: IconProps) => (
+  <S {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="9" cy="9" r="2" />
+    <path d="m21 15-3.5-3.5a2 2 0 0 0-2.8 0L6 21" />
+  </S>
+);
+
+export const Download = (p: IconProps) => (
+  <S {...p}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+  </S>
+);
+
+export const Pencil = (p: IconProps) => (
+  <S {...p}>
+    <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </S>
+);
+
 export const Google = ({ className }: IconProps) => (
   <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
     <path
