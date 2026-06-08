@@ -113,6 +113,7 @@ const enc = encodeURIComponent;
 export interface DriveStatus {
   connected: boolean;
   connecting: boolean;
+  connectable?: boolean;
   reason?: string;
 }
 

@@ -40,8 +40,9 @@ export function DriveStatus({ onConnected }: { onConnected?: () => void }) {
     }
   }
 
-  // Don't render until we know, and hide entirely once connected
-  if (!status || status.connected) return null;
+  // Don't render until we know; hide once connected, or in the hosted app where
+  // Drive can't be connected from the browser (it's set via env there).
+  if (!status || status.connected || status.connectable === false) return null;
 
   const connecting = status.connecting || starting;
 
