@@ -39,11 +39,16 @@ export function baseUrl(): string {
 
 // --- Allowlist -------------------------------------------------------------
 
+// Default allowlist for this private 2-person app. ALLOWED_EMAILS (comma-separated)
+// overrides this when set, so access can change without a code change / redeploy.
+const DEFAULT_ALLOWED_EMAILS = ['mitchellornesmith@gmail.com', 'jamesahs@umich.edu'];
+
 export function allowedEmails(): string[] {
-  return (process.env.ALLOWED_EMAILS ?? '')
+  const fromEnv = (process.env.ALLOWED_EMAILS ?? '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
+  return fromEnv.length ? fromEnv : DEFAULT_ALLOWED_EMAILS.map((e) => e.toLowerCase());
 }
 
 export function isEmailAllowed(email: string): boolean {

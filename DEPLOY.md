@@ -45,7 +45,7 @@ Commit and push to GitHub (Render deploys from the repo).
 | `GOOGLE_CLIENT_SECRET` | existing OAuth client secret |
 | `GOOGLE_DRIVE_FOLDER_ID` | your Drive folder id |
 | `SESSION_SECRET` | the `openssl rand -hex 32` value |
-| `ALLOWED_EMAILS` | `you@gmail.com,james@gmail.com` |
+| `ALLOWED_EMAILS` | *(optional)* overrides the baked-in default (`mitchellornesmith@gmail.com,jamesahs@umich.edu`) |
 | `BASE_URL` | the `https://ocr-xxxx.onrender.com` URL (no trailing slash) |
 | `GOOGLE_DRIVE_TOKEN` | *(optional)* contents of `credentials/oauth-token.json`, one line |
 

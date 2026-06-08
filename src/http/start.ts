@@ -44,7 +44,9 @@ const API_PORT = Number(process.env.PORT ?? process.env.OCR_API_PORT ?? 5180);
 function validateAuthConfig(): void {
   const enabled = process.env.NODE_ENV === 'production' || process.env.AUTH_ENABLED === '1';
   if (!enabled) return;
-  const required = ['SESSION_SECRET', 'BASE_URL', 'ALLOWED_EMAILS', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
+  // ALLOWED_EMAILS is intentionally not required — it defaults to the owners
+  // baked into session.ts and can be overridden via env when needed.
+  const required = ['SESSION_SECRET', 'BASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
   const missing = required.filter((k) => !process.env[k]?.trim());
   if (missing.length) {
     throw new Error(
