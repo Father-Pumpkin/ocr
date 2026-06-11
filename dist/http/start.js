@@ -30,8 +30,27 @@ function ensureDirectories() {
             fs.mkdirSync(dir, { recursive: true });
     }
 }
-const API_PORT = Number(process.env.OCR_API_PORT ?? 5180);
+// Hosts like Render inject $PORT; fall back to the local default.
+const API_PORT = Number(process.env.PORT ?? process.env.OCR_API_PORT ?? 5180);
+/**
+ * When the login gate is on (production, or AUTH_ENABLED=1) fail fast if the
+ * secrets it needs are missing — a clear boot error beats an app that's
+ * silently wide open or locks everyone out.
+ */
+function validateAuthConfig() {
+    const enabled = process.env.NODE_ENV === 'production' || process.env.AUTH_ENABLED === '1';
+    if (!enabled)
+        return;
+    // ALLOWED_EMAILS is intentionally not required — it defaults to the owners
+    // baked into session.ts and can be overridden via env when needed.
+    const required = ['SESSION_SECRET', 'BASE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
+    const missing = required.filter((k) => !process.env[k]?.trim());
+    if (missing.length) {
+        throw new Error(`Login gate is enabled but required env vars are missing: ${missing.join(', ')}. See .env.example.`);
+    }
+}
 async function main() {
+    validateAuthConfig();
     ensureDirectories();
     const { createHttpServer } = await import('./server.js');
     await createHttpServer(API_PORT);

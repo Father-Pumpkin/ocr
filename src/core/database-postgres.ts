@@ -1,5 +1,5 @@
 import postgres from 'postgres';
-import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow } from './database-adapter.js';
+import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow, SentimentScoreDetail, MethodRow, LexiconRow, LexiconTermRow, OcrRunRow } from './database-adapter.js';
 
 // Raw Postgres row types (dates come back as Date objects from the driver)
 interface PgBookRow {
@@ -34,10 +34,20 @@ interface PgPageRow {
   updated_at: Date;
 }
 
+interface PgOcrRunRow {
+  id: number;
+  page_id: number;
+  model: string | null;
+  text: string;
+  created_by: string | null;
+  created_at: Date;
+}
+
 interface PgBatchJobRow {
   id: number;
   batch_id: string;
   book_ids: unknown; // JSONB — comes back as parsed JS value
+  kind: string;
   status: string;
   created_by: string | null;
   created_at: Date;
@@ -59,10 +69,29 @@ interface PgPageSentimentRow {
   id: number;
   page_id: number;
   dimension_id: number;
+  method_id: number;
   score: number;
   rationale: string | null;
   model: string | null;
   created_by: string | null;
+  created_at: Date;
+}
+
+interface PgMethodRow {
+  id: number;
+  name: string;
+  kind: string;
+  config: string;
+  created_by: string | null;
+  created_at: Date;
+}
+
+interface PgLexiconRow {
+  id: number;
+  name: string;
+  scale_min: number;
+  scale_max: number;
+  note: string | null;
   created_at: Date;
 }
 
@@ -81,6 +110,10 @@ function coercePage(row: PgPageRow): PageRow {
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   };
+}
+
+function coerceOcrRun(row: PgOcrRunRow): OcrRunRow {
+  return { ...row, created_at: row.created_at.toISOString() };
 }
 
 function coerceBatchJob(row: PgBatchJobRow): BatchJobRow {
@@ -105,6 +138,14 @@ function coercePageSentiment(row: PgPageSentimentRow): PageSentimentRow {
     ...row,
     created_at: row.created_at.toISOString(),
   };
+}
+
+function coerceMethod(row: PgMethodRow): MethodRow {
+  return { ...row, created_at: row.created_at.toISOString() };
+}
+
+function coerceLexicon(row: PgLexiconRow): LexiconRow {
+  return { ...row, created_at: row.created_at.toISOString() };
 }
 
 export class PostgresAdapter implements DatabaseAdapter {
@@ -157,6 +198,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         id           SERIAL PRIMARY KEY,
         batch_id     TEXT NOT NULL UNIQUE,
         book_ids     JSONB NOT NULL DEFAULT '[]',
+        kind         TEXT NOT NULL DEFAULT 'ocr',
         status       TEXT DEFAULT 'in_progress',
         created_by   TEXT,
         created_at   TIMESTAMPTZ DEFAULT NOW(),
@@ -178,16 +220,52 @@ export class PostgresAdapter implements DatabaseAdapter {
     `;
 
     await this.sql`
+      CREATE TABLE IF NOT EXISTS methods (
+        id         SERIAL PRIMARY KEY,
+        name       TEXT NOT NULL UNIQUE,
+        kind       TEXT NOT NULL,
+        config     TEXT NOT NULL DEFAULT '{}',
+        created_by TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS lexicons (
+        id         SERIAL PRIMARY KEY,
+        name       TEXT NOT NULL UNIQUE,
+        scale_min  DOUBLE PRECISION NOT NULL DEFAULT 0,
+        scale_max  DOUBLE PRECISION NOT NULL DEFAULT 1,
+        note       TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS lexicon_terms (
+        id           SERIAL PRIMARY KEY,
+        lexicon_id   INTEGER NOT NULL REFERENCES lexicons(id) ON DELETE CASCADE,
+        dimension_id INTEGER NOT NULL REFERENCES dimensions(id) ON DELETE CASCADE,
+        term         TEXT NOT NULL,
+        value        DOUBLE PRECISION NOT NULL,
+        UNIQUE(lexicon_id, dimension_id, term)
+      )
+    `;
+
+    // method_id nullable + no inline unique here; the migration block below makes
+    // it NOT NULL and installs the (page, dimension, method) unique — one path for
+    // both fresh and existing DBs.
+    await this.sql`
       CREATE TABLE IF NOT EXISTS page_sentiment (
         id           SERIAL PRIMARY KEY,
         page_id      INTEGER NOT NULL REFERENCES pages(id),
         dimension_id INTEGER NOT NULL REFERENCES dimensions(id) ON DELETE CASCADE,
+        method_id    INTEGER REFERENCES methods(id) ON DELETE CASCADE,
         score        FLOAT NOT NULL CHECK (score >= 0.0 AND score <= 1.0),
         rationale    TEXT,
         model        TEXT,
         created_by   TEXT,
-        created_at   TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE(page_id, dimension_id)
+        created_at   TIMESTAMPTZ DEFAULT NOW()
       )
     `;
 
@@ -201,6 +279,18 @@ export class PostgresAdapter implements DatabaseAdapter {
         UNIQUE(book_id, page_number)
       )
     `;
+
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS page_ocr_runs (
+        id          SERIAL PRIMARY KEY,
+        page_id     INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+        model       TEXT,
+        text        TEXT NOT NULL,
+        created_by  TEXT,
+        created_at  TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+    await this.sql`CREATE INDEX IF NOT EXISTS idx_page_ocr_runs_page ON page_ocr_runs (page_id, created_at)`;
 
     // Preserve the first OCR result for research. Additive migration for existing
     // DBs (the CREATE above is a no-op when the table already exists). Backfill
@@ -216,6 +306,29 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     // Object-storage key for page images (R2)
     await this.sql`ALTER TABLE page_images ADD COLUMN IF NOT EXISTS object_key TEXT`;
+
+    // Distinguish OCR batches from sentiment-scoring batches so resume routes correctly
+    await this.sql`ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'ocr'`;
+
+    // Sentiment scoring methods: seed the default LLM method, make `method` a
+    // first-class axis on page_sentiment (page+dimension+method), and migrate the
+    // old 2-column unique. Idempotent and safe on both fresh and existing DBs.
+    await this.sql`INSERT INTO methods (name, kind, config) VALUES ('claude-default', 'llm', '{}') ON CONFLICT (name) DO NOTHING`;
+    await this.sql`ALTER TABLE page_sentiment ADD COLUMN IF NOT EXISTS method_id INTEGER REFERENCES methods(id) ON DELETE CASCADE`;
+    await this.sql`UPDATE page_sentiment SET method_id = (SELECT id FROM methods WHERE name = 'claude-default') WHERE method_id IS NULL`;
+    await this.sql`ALTER TABLE page_sentiment ALTER COLUMN method_id SET NOT NULL`;
+    await this.sql`ALTER TABLE page_sentiment DROP CONSTRAINT IF EXISTS page_sentiment_page_id_dimension_id_key`;
+    await this.sql`CREATE UNIQUE INDEX IF NOT EXISTS page_sentiment_page_dim_method_key ON page_sentiment (page_id, dimension_id, method_id)`;
+
+    // Seed OCR run history from the legacy single-original column so existing
+    // pages still show their original in the new history view. Idempotent: only
+    // inserts for pages that have an original but no run yet.
+    await this.sql`
+      INSERT INTO page_ocr_runs (page_id, model, text, created_at)
+      SELECT id, NULL, original_transcription, created_at FROM pages p
+      WHERE original_transcription IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM page_ocr_runs r WHERE r.page_id = p.id)
+    `;
   }
 
   // ---- Book helpers ----
@@ -397,11 +510,11 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   // ---- Batch job helpers ----
 
-  async createBatchJob(batchId: string, bookIds: number[]): Promise<BatchJobRow> {
+  async createBatchJob(batchId: string, bookIds: number[], kind = 'ocr'): Promise<BatchJobRow> {
     const createdBy = process.env.APP_USER_ID ?? null;
     const rows = await this.sql<PgBatchJobRow[]>`
-      INSERT INTO batch_jobs (batch_id, book_ids, created_by)
-      VALUES (${batchId}, ${this.sql.json(bookIds)}, ${createdBy})
+      INSERT INTO batch_jobs (batch_id, book_ids, kind, created_by)
+      VALUES (${batchId}, ${this.sql.json(bookIds)}, ${kind}, ${createdBy})
       RETURNING *
     `;
     return coerceBatchJob(rows[0]);
@@ -485,14 +598,79 @@ export class PostgresAdapter implements DatabaseAdapter {
     return result.count > 0;
   }
 
+  // ---- Scoring method + lexicon helpers ----
+
+  async createMethod(name: string, kind: string, config: string): Promise<MethodRow> {
+    const createdBy = process.env.APP_USER_ID ?? null;
+    const rows = await this.sql<PgMethodRow[]>`
+      INSERT INTO methods (name, kind, config, created_by)
+      VALUES (${name}, ${kind}, ${config}, ${createdBy})
+      RETURNING *
+    `;
+    return coerceMethod(rows[0]);
+  }
+
+  async getMethodByName(name: string): Promise<MethodRow | undefined> {
+    const rows = await this.sql<PgMethodRow[]>`SELECT * FROM methods WHERE name = ${name}`;
+    return rows.length > 0 ? coerceMethod(rows[0]) : undefined;
+  }
+
+  async getAllMethods(): Promise<MethodRow[]> {
+    const rows = await this.sql<PgMethodRow[]>`SELECT * FROM methods ORDER BY name`;
+    return rows.map(coerceMethod);
+  }
+
+  async deleteMethod(id: number): Promise<boolean> {
+    const result = await this.sql`DELETE FROM methods WHERE id = ${id}`;
+    return result.count > 0;
+  }
+
+  async createLexicon(name: string, scaleMin: number, scaleMax: number, note: string | null): Promise<LexiconRow> {
+    const rows = await this.sql<PgLexiconRow[]>`
+      INSERT INTO lexicons (name, scale_min, scale_max, note)
+      VALUES (${name}, ${scaleMin}, ${scaleMax}, ${note})
+      RETURNING *
+    `;
+    return coerceLexicon(rows[0]);
+  }
+
+  async getLexiconByName(name: string): Promise<LexiconRow | undefined> {
+    const rows = await this.sql<PgLexiconRow[]>`SELECT * FROM lexicons WHERE name = ${name}`;
+    return rows.length > 0 ? coerceLexicon(rows[0]) : undefined;
+  }
+
+  async insertLexiconTerms(terms: Array<{ lexiconId: number; dimensionId: number; term: string; value: number }>): Promise<number> {
+    const CHUNK = 1000;
+    let inserted = 0;
+    for (let i = 0; i < terms.length; i += CHUNK) {
+      const chunk = terms.slice(i, i + CHUNK).map((t) => ({
+        lexicon_id: t.lexiconId, dimension_id: t.dimensionId, term: t.term, value: t.value,
+      }));
+      await this.sql`
+        INSERT INTO lexicon_terms ${this.sql(chunk, 'lexicon_id', 'dimension_id', 'term', 'value')}
+        ON CONFLICT (lexicon_id, dimension_id, term) DO UPDATE SET value = EXCLUDED.value
+      `;
+      inserted += chunk.length;
+    }
+    return inserted;
+  }
+
+  async getLexiconTerms(lexiconId: number, dimensionId: number): Promise<LexiconTermRow[]> {
+    const rows = await this.sql<LexiconTermRow[]>`
+      SELECT lexicon_id, dimension_id, term, value FROM lexicon_terms
+      WHERE lexicon_id = ${lexiconId} AND dimension_id = ${dimensionId}
+    `;
+    return rows.map((r) => ({ lexicon_id: r.lexicon_id, dimension_id: r.dimension_id, term: r.term, value: r.value }));
+  }
+
   // ---- Page sentiment helpers ----
 
-  async upsertPageSentiment(pageId: number, dimensionId: number, score: number, rationale: string | null, model: string | null): Promise<PageSentimentRow> {
+  async upsertPageSentiment(pageId: number, dimensionId: number, methodId: number, score: number, rationale: string | null, model: string | null): Promise<PageSentimentRow> {
     const createdBy = process.env.APP_USER_ID ?? null;
     const rows = await this.sql<PgPageSentimentRow[]>`
-      INSERT INTO page_sentiment (page_id, dimension_id, score, rationale, model, created_by)
-      VALUES (${pageId}, ${dimensionId}, ${score}, ${rationale}, ${model}, ${createdBy})
-      ON CONFLICT(page_id, dimension_id) DO UPDATE SET
+      INSERT INTO page_sentiment (page_id, dimension_id, method_id, score, rationale, model, created_by)
+      VALUES (${pageId}, ${dimensionId}, ${methodId}, ${score}, ${rationale}, ${model}, ${createdBy})
+      ON CONFLICT (page_id, dimension_id, method_id) DO UPDATE SET
         score      = EXCLUDED.score,
         rationale  = EXCLUDED.rationale,
         model      = EXCLUDED.model,
@@ -593,6 +771,51 @@ export class PostgresAdapter implements DatabaseAdapter {
     return rows.map(coercePageSentiment);
   }
 
+  async getSentimentScores(bookIds: number[], dimensionIds?: number[], methodIds?: number[]): Promise<SentimentScoreDetail[]> {
+    if (bookIds.length === 0) return [];
+
+    interface Raw {
+      page_id: number; dimension_id: number; method_id: number; score: number; rationale: string | null;
+      model: string | null; book_id: number; page_number: number; tags: unknown;
+      book_title: string; dimension_name: string; method_name: string;
+    }
+
+    const dimFilter = dimensionIds && dimensionIds.length > 0
+      ? this.sql`AND ps.dimension_id = ANY(${this.sql.array(dimensionIds)})`
+      : this.sql``;
+    const methodFilter = methodIds && methodIds.length > 0
+      ? this.sql`AND ps.method_id = ANY(${this.sql.array(methodIds)})`
+      : this.sql``;
+
+    const rows = await this.sql<Raw[]>`
+      SELECT ps.page_id, ps.dimension_id, ps.method_id, ps.score, ps.rationale, ps.model,
+             p.book_id, p.page_number, p.tags,
+             b.title AS book_title, d.name AS dimension_name, m.name AS method_name
+      FROM page_sentiment ps
+      JOIN pages      p ON ps.page_id = p.id
+      JOIN books      b ON p.book_id = b.id
+      JOIN dimensions d ON ps.dimension_id = d.id
+      JOIN methods    m ON ps.method_id = m.id
+      WHERE p.book_id = ANY(${this.sql.array(bookIds)}) ${dimFilter} ${methodFilter}
+      ORDER BY p.book_id, p.page_number, ps.dimension_id, ps.method_id
+    `;
+
+    return rows.map((r) => ({
+      book_id: r.book_id,
+      book_title: r.book_title,
+      page_id: r.page_id,
+      page_number: r.page_number,
+      tags: Array.isArray(r.tags) ? (r.tags as unknown[]).map((t) => String(t).trim()).filter(Boolean) : [],
+      dimension_id: r.dimension_id,
+      dimension_name: r.dimension_name,
+      method_id: r.method_id,
+      method_name: r.method_name,
+      score: r.score,
+      rationale: r.rationale,
+      model: r.model,
+    }));
+  }
+
   // ---- Page image helpers ----
 
   async getPageImage(bookId: number, pageNumber: number): Promise<string | null> {
@@ -644,6 +867,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   }
 
   async deletePage(bookId: number, pageNumber: number): Promise<boolean> {
+    await this.sql`DELETE FROM page_ocr_runs WHERE page_id IN (SELECT id FROM pages WHERE book_id = ${bookId} AND page_number = ${pageNumber})`;
     const result = await this.sql`DELETE FROM pages WHERE book_id = ${bookId} AND page_number = ${pageNumber}`;
     if (result.count === 0) return false;
     await this.sql`DELETE FROM page_images WHERE book_id = ${bookId} AND page_number = ${pageNumber}`;
@@ -665,6 +889,28 @@ export class PostgresAdapter implements DatabaseAdapter {
     await this.sql`INSERT INTO pages (book_id, page_number, transcription, status) VALUES (${bookId}, ${newPageNumber}, NULL, 'pending')`;
     const rows = await this.sql<PageRow[]>`SELECT * FROM pages WHERE book_id = ${bookId} AND page_number = ${newPageNumber}`;
     return rows[0];
+  }
+
+  async recordOcrRun(bookId: number, pageNumber: number, model: string | null, text: string): Promise<OcrRunRow> {
+    const createdBy = process.env.APP_USER_ID ?? null;
+    const rows = await this.sql<PgOcrRunRow[]>`
+      INSERT INTO page_ocr_runs (page_id, model, text, created_by)
+      SELECT id, ${model}, ${text}, ${createdBy} FROM pages
+      WHERE book_id = ${bookId} AND page_number = ${pageNumber}
+      RETURNING *
+    `;
+    if (rows.length === 0) throw new Error(`Page ${pageNumber} not found for book ${bookId}`);
+    return coerceOcrRun(rows[0]);
+  }
+
+  async getOcrRuns(bookId: number, pageNumber: number): Promise<OcrRunRow[]> {
+    const rows = await this.sql<PgOcrRunRow[]>`
+      SELECT r.* FROM page_ocr_runs r
+      JOIN pages p ON p.id = r.page_id
+      WHERE p.book_id = ${bookId} AND p.page_number = ${pageNumber}
+      ORDER BY r.created_at, r.id
+    `;
+    return rows.map(coerceOcrRun);
   }
 }
 

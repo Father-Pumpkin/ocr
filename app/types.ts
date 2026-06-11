@@ -35,6 +35,17 @@ export interface PageRow {
   updated_at: string;
 }
 
+/** One machine OCR result for a page; the earliest run is the "original". */
+export interface OcrRun {
+  id: number;
+  page_id: number;
+  /** Model that produced this run, e.g. 'claude-sonnet-4-6'; null = unknown. */
+  model: string | null;
+  text: string;
+  created_by: string | null;
+  created_at: string;
+}
+
 /** Parse a PageRow.tags JSON string into a string[], tolerating bad data. */
 export function parseTags(tags: string): string[] {
   try {

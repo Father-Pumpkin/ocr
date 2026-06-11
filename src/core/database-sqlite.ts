@@ -1,7 +1,18 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow } from './database-adapter.js';
+import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow, SentimentScoreDetail, MethodRow, LexiconRow, LexiconTermRow, OcrRunRow } from './database-adapter.js';
+
+/** Parse a stored tags JSON string into a trimmed string[], tolerating malformed data. */
+function parseTagsJson(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.map((t) => String(t).trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
 
 // SQLite raw row types (booleans stored as 0/1 integers)
 interface SqlitePageRow {
@@ -87,6 +98,7 @@ export class SqliteAdapter implements DatabaseAdapter {
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
         batch_id     TEXT NOT NULL UNIQUE,
         book_ids     TEXT NOT NULL,
+        kind         TEXT NOT NULL DEFAULT 'ocr',
         status       TEXT DEFAULT 'in_progress',
         created_by   TEXT,
         created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -104,16 +116,44 @@ export class SqliteAdapter implements DatabaseAdapter {
         updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS methods (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL UNIQUE,
+        kind        TEXT NOT NULL,
+        config      TEXT NOT NULL DEFAULT '{}',
+        created_by  TEXT,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS lexicons (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL UNIQUE,
+        scale_min  REAL NOT NULL DEFAULT 0,
+        scale_max  REAL NOT NULL DEFAULT 1,
+        note       TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS lexicon_terms (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        lexicon_id   INTEGER NOT NULL REFERENCES lexicons(id) ON DELETE CASCADE,
+        dimension_id INTEGER NOT NULL REFERENCES dimensions(id) ON DELETE CASCADE,
+        term         TEXT NOT NULL,
+        value        REAL NOT NULL,
+        UNIQUE(lexicon_id, dimension_id, term)
+      );
+
       CREATE TABLE IF NOT EXISTS page_sentiment (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
         page_id      INTEGER NOT NULL REFERENCES pages(id),
         dimension_id INTEGER NOT NULL REFERENCES dimensions(id) ON DELETE CASCADE,
+        method_id    INTEGER NOT NULL REFERENCES methods(id) ON DELETE CASCADE,
         score        REAL NOT NULL CHECK (score >= 0.0 AND score <= 1.0),
         rationale    TEXT,
         model        TEXT,
         created_by   TEXT,
         created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(page_id, dimension_id)
+        UNIQUE(page_id, dimension_id, method_id)
       );
 
       CREATE TABLE IF NOT EXISTS page_images (
@@ -124,6 +164,16 @@ export class SqliteAdapter implements DatabaseAdapter {
         created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(book_id, page_number)
       );
+
+      CREATE TABLE IF NOT EXISTS page_ocr_runs (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        page_id     INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+        model       TEXT,
+        text        TEXT NOT NULL,
+        created_by  TEXT,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_page_ocr_runs_page ON page_ocr_runs(page_id, created_at);
     `);
   }
 
@@ -150,6 +200,13 @@ export class SqliteAdapter implements DatabaseAdapter {
 
     try {
       this.db.exec(`ALTER TABLE batch_jobs ADD COLUMN created_by TEXT`);
+    } catch {
+      // Column already exists — no-op
+    }
+
+    // Distinguish OCR batches from sentiment-scoring batches so resume routes correctly
+    try {
+      this.db.exec(`ALTER TABLE batch_jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'ocr'`);
     } catch {
       // Column already exists — no-op
     }
@@ -199,6 +256,58 @@ export class SqliteAdapter implements DatabaseAdapter {
       this.db.exec(`ALTER TABLE page_images ADD COLUMN object_key TEXT`);
     } catch {
       // Column already exists — no-op
+    }
+
+    // Sentiment scoring methods: seed the built-in default LLM method, then make
+    // `method` a first-class axis on page_sentiment. SQLite can't drop the old
+    // 2-column UNIQUE in place, so rebuild the table (scores are recomputable).
+    try {
+      this.db.exec(`INSERT OR IGNORE INTO methods (name, kind, config) VALUES ('claude-default', 'llm', '{}')`);
+    } catch {
+      // methods table is created in initializeSchema; ignore on unexpected ordering
+    }
+
+    const psCols = this.db.prepare(`PRAGMA table_info(page_sentiment)`).all() as Array<{ name: string }>;
+    if (psCols.length > 0 && !psCols.some((c) => c.name === 'method_id')) {
+      const def = this.db.prepare(`SELECT id FROM methods WHERE name = 'claude-default'`).get() as { id: number } | undefined;
+      const defaultId = Number(def?.id ?? 1);
+      this.db.pragma('foreign_keys = OFF');
+      const rebuild = this.db.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE page_sentiment_new (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            page_id      INTEGER NOT NULL REFERENCES pages(id),
+            dimension_id INTEGER NOT NULL REFERENCES dimensions(id) ON DELETE CASCADE,
+            method_id    INTEGER NOT NULL REFERENCES methods(id) ON DELETE CASCADE,
+            score        REAL NOT NULL CHECK (score >= 0.0 AND score <= 1.0),
+            rationale    TEXT,
+            model        TEXT,
+            created_by   TEXT,
+            created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(page_id, dimension_id, method_id)
+          );
+          INSERT INTO page_sentiment_new (id, page_id, dimension_id, method_id, score, rationale, model, created_by, created_at)
+            SELECT id, page_id, dimension_id, ${defaultId}, score, rationale, model, created_by, created_at FROM page_sentiment;
+          DROP TABLE page_sentiment;
+          ALTER TABLE page_sentiment_new RENAME TO page_sentiment;
+        `);
+      });
+      rebuild();
+      this.db.pragma('foreign_keys = ON');
+    }
+
+    // Seed OCR run history from the legacy single-original column so existing
+    // pages still show their original in the new history view. Idempotent: only
+    // inserts for pages that have an original but no run yet.
+    try {
+      this.db.exec(`
+        INSERT INTO page_ocr_runs (page_id, model, text, created_at)
+        SELECT id, NULL, original_transcription, created_at FROM pages p
+        WHERE original_transcription IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM page_ocr_runs r WHERE r.page_id = p.id)
+      `);
+    } catch {
+      // Best-effort backfill (e.g. page_ocr_runs not yet created on unexpected ordering)
     }
   }
 
@@ -384,11 +493,11 @@ export class SqliteAdapter implements DatabaseAdapter {
 
   // ---- Batch job helpers ----
 
-  async createBatchJob(batchId: string, bookIds: number[]): Promise<BatchJobRow> {
+  async createBatchJob(batchId: string, bookIds: number[], kind = 'ocr'): Promise<BatchJobRow> {
     const createdBy = process.env.APP_USER_ID ?? null;
     this.db.prepare(`
-      INSERT INTO batch_jobs (batch_id, book_ids, created_by) VALUES (?, ?, ?)
-    `).run(batchId, JSON.stringify(bookIds), createdBy);
+      INSERT INTO batch_jobs (batch_id, book_ids, kind, created_by) VALUES (?, ?, ?, ?)
+    `).run(batchId, JSON.stringify(bookIds), kind, createdBy);
 
     return Promise.resolve(
       this.db.prepare('SELECT * FROM batch_jobs WHERE batch_id = ?').get(batchId) as BatchJobRow
@@ -482,22 +591,73 @@ export class SqliteAdapter implements DatabaseAdapter {
     return Promise.resolve(result.changes > 0);
   }
 
+  // ---- Scoring method + lexicon helpers ----
+
+  async createMethod(name: string, kind: string, config: string): Promise<MethodRow> {
+    const createdBy = process.env.APP_USER_ID ?? null;
+    this.db.prepare(`INSERT INTO methods (name, kind, config, created_by) VALUES (?, ?, ?, ?)`)
+      .run(name, kind, config, createdBy);
+    return Promise.resolve(this.db.prepare('SELECT * FROM methods WHERE name = ?').get(name) as MethodRow);
+  }
+
+  async getMethodByName(name: string): Promise<MethodRow | undefined> {
+    return Promise.resolve(this.db.prepare('SELECT * FROM methods WHERE name = ?').get(name) as MethodRow | undefined);
+  }
+
+  async getAllMethods(): Promise<MethodRow[]> {
+    return Promise.resolve(this.db.prepare('SELECT * FROM methods ORDER BY name').all() as MethodRow[]);
+  }
+
+  async deleteMethod(id: number): Promise<boolean> {
+    const r = this.db.prepare('DELETE FROM methods WHERE id = ?').run(id);
+    return Promise.resolve(r.changes > 0);
+  }
+
+  async createLexicon(name: string, scaleMin: number, scaleMax: number, note: string | null): Promise<LexiconRow> {
+    this.db.prepare(`INSERT INTO lexicons (name, scale_min, scale_max, note) VALUES (?, ?, ?, ?)`)
+      .run(name, scaleMin, scaleMax, note);
+    return Promise.resolve(this.db.prepare('SELECT * FROM lexicons WHERE name = ?').get(name) as LexiconRow);
+  }
+
+  async getLexiconByName(name: string): Promise<LexiconRow | undefined> {
+    return Promise.resolve(this.db.prepare('SELECT * FROM lexicons WHERE name = ?').get(name) as LexiconRow | undefined);
+  }
+
+  async insertLexiconTerms(terms: Array<{ lexiconId: number; dimensionId: number; term: string; value: number }>): Promise<number> {
+    const stmt = this.db.prepare(`
+      INSERT INTO lexicon_terms (lexicon_id, dimension_id, term, value) VALUES (?, ?, ?, ?)
+      ON CONFLICT(lexicon_id, dimension_id, term) DO UPDATE SET value = excluded.value
+    `);
+    const insertAll = this.db.transaction((rows: typeof terms) => {
+      for (const t of rows) stmt.run(t.lexiconId, t.dimensionId, t.term, t.value);
+      return rows.length;
+    });
+    return Promise.resolve(insertAll(terms));
+  }
+
+  async getLexiconTerms(lexiconId: number, dimensionId: number): Promise<LexiconTermRow[]> {
+    return Promise.resolve(
+      this.db.prepare('SELECT lexicon_id, dimension_id, term, value FROM lexicon_terms WHERE lexicon_id = ? AND dimension_id = ?')
+        .all(lexiconId, dimensionId) as LexiconTermRow[]
+    );
+  }
+
   // ---- Page sentiment helpers ----
 
-  async upsertPageSentiment(pageId: number, dimensionId: number, score: number, rationale: string | null, model: string | null): Promise<PageSentimentRow> {
+  async upsertPageSentiment(pageId: number, dimensionId: number, methodId: number, score: number, rationale: string | null, model: string | null): Promise<PageSentimentRow> {
     const createdBy = process.env.APP_USER_ID ?? null;
     this.db.prepare(`
-      INSERT INTO page_sentiment (page_id, dimension_id, score, rationale, model, created_by)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(page_id, dimension_id) DO UPDATE SET
+      INSERT INTO page_sentiment (page_id, dimension_id, method_id, score, rationale, model, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(page_id, dimension_id, method_id) DO UPDATE SET
         score     = excluded.score,
         rationale = excluded.rationale,
         model     = excluded.model,
         created_by = excluded.created_by
-    `).run(pageId, dimensionId, score, rationale, model, createdBy);
+    `).run(pageId, dimensionId, methodId, score, rationale, model, createdBy);
 
     return Promise.resolve(
-      this.db.prepare('SELECT * FROM page_sentiment WHERE page_id = ? AND dimension_id = ?').get(pageId, dimensionId) as PageSentimentRow
+      this.db.prepare('SELECT * FROM page_sentiment WHERE page_id = ? AND dimension_id = ? AND method_id = ?').get(pageId, dimensionId, methodId) as PageSentimentRow
     );
   }
 
@@ -535,6 +695,55 @@ export class SqliteAdapter implements DatabaseAdapter {
     return Promise.resolve(
       this.db.prepare(sql).all(...values) as PageSentimentRow[]
     );
+  }
+
+  async getSentimentScores(bookIds: number[], dimensionIds?: number[], methodIds?: number[]): Promise<SentimentScoreDetail[]> {
+    if (bookIds.length === 0) return Promise.resolve([]);
+
+    const conditions = [`p.book_id IN (${bookIds.map(() => '?').join(', ')})`];
+    const values: unknown[] = [...bookIds];
+    if (dimensionIds && dimensionIds.length > 0) {
+      conditions.push(`ps.dimension_id IN (${dimensionIds.map(() => '?').join(', ')})`);
+      values.push(...dimensionIds);
+    }
+    if (methodIds && methodIds.length > 0) {
+      conditions.push(`ps.method_id IN (${methodIds.map(() => '?').join(', ')})`);
+      values.push(...methodIds);
+    }
+
+    const rows = this.db.prepare(`
+      SELECT ps.page_id, ps.dimension_id, ps.method_id, ps.score, ps.rationale, ps.model,
+             p.book_id, p.page_number, p.tags,
+             b.title AS book_title,
+             d.name  AS dimension_name,
+             m.name  AS method_name
+      FROM page_sentiment ps
+      JOIN pages      p ON ps.page_id = p.id
+      JOIN books      b ON p.book_id = b.id
+      JOIN dimensions d ON ps.dimension_id = d.id
+      JOIN methods    m ON ps.method_id = m.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY p.book_id, p.page_number, ps.dimension_id, ps.method_id
+    `).all(...values) as Array<{
+      page_id: number; dimension_id: number; method_id: number; score: number; rationale: string | null;
+      model: string | null; book_id: number; page_number: number; tags: string;
+      book_title: string; dimension_name: string; method_name: string;
+    }>;
+
+    return Promise.resolve(rows.map((r) => ({
+      book_id: r.book_id,
+      book_title: r.book_title,
+      page_id: r.page_id,
+      page_number: r.page_number,
+      tags: parseTagsJson(r.tags),
+      dimension_id: r.dimension_id,
+      dimension_name: r.dimension_name,
+      method_id: r.method_id,
+      method_name: r.method_name,
+      score: r.score,
+      rationale: r.rationale,
+      model: r.model,
+    })));
   }
 
   // ---- Page image helpers ----
@@ -627,6 +836,12 @@ export class SqliteAdapter implements DatabaseAdapter {
 
   async deletePage(bookId: number, pageNumber: number): Promise<boolean> {
     const doDelete = this.db.transaction(() => {
+      // Drop the page's OCR run history first (FK target goes away below).
+      this.db.prepare(`
+        DELETE FROM page_ocr_runs
+        WHERE page_id IN (SELECT id FROM pages WHERE book_id = ? AND page_number = ?)
+      `).run(bookId, pageNumber);
+
       // Delete the page and its cached image
       const result = this.db.prepare(
         'DELETE FROM pages WHERE book_id = ? AND page_number = ?'
@@ -661,5 +876,29 @@ export class SqliteAdapter implements DatabaseAdapter {
     });
 
     return Promise.resolve(doDelete());
+  }
+
+  async recordOcrRun(bookId: number, pageNumber: number, model: string | null, text: string): Promise<OcrRunRow> {
+    const page = this.db.prepare('SELECT id FROM pages WHERE book_id = ? AND page_number = ?')
+      .get(bookId, pageNumber) as { id: number } | undefined;
+    if (!page) throw new Error(`Page ${pageNumber} not found for book ${bookId}`);
+    const createdBy = process.env.APP_USER_ID ?? null;
+    const info = this.db.prepare(`
+      INSERT INTO page_ocr_runs (page_id, model, text, created_by)
+      VALUES (?, ?, ?, ?)
+    `).run(page.id, model, text, createdBy);
+    const row = this.db.prepare('SELECT * FROM page_ocr_runs WHERE id = ?')
+      .get(Number(info.lastInsertRowid)) as OcrRunRow;
+    return Promise.resolve(row);
+  }
+
+  async getOcrRuns(bookId: number, pageNumber: number): Promise<OcrRunRow[]> {
+    const rows = this.db.prepare(`
+      SELECT r.* FROM page_ocr_runs r
+      JOIN pages p ON p.id = r.page_id
+      WHERE p.book_id = ? AND p.page_number = ?
+      ORDER BY r.created_at, r.id
+    `).all(bookId, pageNumber) as OcrRunRow[];
+    return Promise.resolve(rows);
   }
 }

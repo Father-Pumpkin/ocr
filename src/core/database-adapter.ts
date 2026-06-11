@@ -35,10 +35,27 @@ export interface PageRow {
   updated_at: string;
 }
 
+/**
+ * One machine OCR result for a page, preserved as history. The earliest run for
+ * a page is its "original" OCR; each re-transcription appends another run, so the
+ * same page can be compared across models (e.g. Sonnet vs Opus).
+ */
+export interface OcrRunRow {
+  id: number;
+  page_id: number;
+  /** Model that produced this run, e.g. 'claude-sonnet-4-6'. NULL = unknown/backfilled. */
+  model: string | null;
+  text: string;
+  created_by: string | null;
+  created_at: string;
+}
+
 export interface BatchJobRow {
   id: number;
   batch_id: string;
   book_ids: string; // JSON array string
+  /** Which pipeline produced this batch, so resume/check routes to the right processor. */
+  kind: string; // 'ocr' | 'sentiment'
   status: string;
   created_by: string | null;
   created_at: string;
@@ -60,11 +77,61 @@ export interface PageSentimentRow {
   id: number;
   page_id: number;
   dimension_id: number;
+  /** Which scoring method (instrument) produced this score. */
+  method_id: number;
   score: number; // 0.0 to 1.0
   rationale: string | null;
   model: string | null;
   created_by: string | null;
   created_at: string;
+}
+
+/** A scoring method (instrument): an LLM prompt+model, or a lexicon + aggregation rule. */
+export interface MethodRow {
+  id: number;
+  name: string;
+  kind: string; // 'llm' | 'lexicon'
+  config: string; // JSON string — llm: {model, prompt?}; lexicon: {lexicon_id, aggregation, negation}
+  created_by: string | null;
+  created_at: string;
+}
+
+/** An imported sentiment dictionary; its native scale is kept for transparency. */
+export interface LexiconRow {
+  id: number;
+  name: string;
+  scale_min: number;
+  scale_max: number;
+  note: string | null;
+  created_at: string;
+}
+
+/** One lexicon entry: a term's value (normalized 0–1) for a given construct/dimension. */
+export interface LexiconTermRow {
+  lexicon_id: number;
+  dimension_id: number;
+  term: string;
+  value: number; // normalized 0–1
+}
+
+/**
+ * A page sentiment score joined with its page, book, and dimension context.
+ * The flat shape charting/aggregation needs — `getBookSentiment` returns only
+ * `page_sentiment.*`, which lacks page_number/tags/book/dimension names.
+ */
+export interface SentimentScoreDetail {
+  book_id: number;
+  book_title: string;
+  page_id: number;
+  page_number: number;
+  tags: string[];
+  dimension_id: number;
+  dimension_name: string;
+  method_id: number;
+  method_name: string;
+  score: number;
+  rationale: string | null;
+  model: string | null;
 }
 
 export interface DatabaseAdapter {
@@ -95,7 +162,7 @@ export interface DatabaseAdapter {
   hasExistingTranscription(bookId: number, pageNumber: number): Promise<boolean>;
 
   // Batch jobs
-  createBatchJob(batchId: string, bookIds: number[]): Promise<BatchJobRow>;
+  createBatchJob(batchId: string, bookIds: number[], kind?: string): Promise<BatchJobRow>;
   getBatchJob(batchId: string): Promise<BatchJobRow | undefined>;
   updateBatchJobStatus(batchId: string, status: string): Promise<void>;
   getInProgressBatchJobs(): Promise<BatchJobRow[]>;
@@ -107,10 +174,25 @@ export interface DatabaseAdapter {
   updateDimension(id: number, fields: { description?: string; minLabel?: string; maxLabel?: string }): Promise<DimensionRow | undefined>;
   deleteDimension(id: number): Promise<boolean>;
 
+  // Scoring methods (instruments)
+  createMethod(name: string, kind: string, config: string): Promise<MethodRow>;
+  getMethodByName(name: string): Promise<MethodRow | undefined>;
+  getAllMethods(): Promise<MethodRow[]>;
+  deleteMethod(id: number): Promise<boolean>;
+
+  // Lexicons
+  createLexicon(name: string, scaleMin: number, scaleMax: number, note: string | null): Promise<LexiconRow>;
+  getLexiconByName(name: string): Promise<LexiconRow | undefined>;
+  /** Bulk-insert normalized lexicon entries; returns the count inserted. */
+  insertLexiconTerms(terms: Array<{ lexiconId: number; dimensionId: number; term: string; value: number }>): Promise<number>;
+  getLexiconTerms(lexiconId: number, dimensionId: number): Promise<LexiconTermRow[]>;
+
   // Page sentiment
-  upsertPageSentiment(pageId: number, dimensionId: number, score: number, rationale: string | null, model: string | null): Promise<PageSentimentRow>;
+  upsertPageSentiment(pageId: number, dimensionId: number, methodId: number, score: number, rationale: string | null, model: string | null): Promise<PageSentimentRow>;
   getPageSentiment(pageId: number): Promise<PageSentimentRow[]>;
   getBookSentiment(bookId: number, dimensionIds?: number[], pageStart?: number, pageEnd?: number): Promise<PageSentimentRow[]>;
+  /** Enriched scores (page/book/dimension/method context) for a set of books — powers charting/aggregation. */
+  getSentimentScores(bookIds: number[], dimensionIds?: number[], methodIds?: number[]): Promise<SentimentScoreDetail[]>;
 
   // Page images
   getPageImage(bookId: number, pageNumber: number): Promise<string | null>;
@@ -125,4 +207,10 @@ export interface DatabaseAdapter {
   // Page insertion / deletion
   insertPageAfter(bookId: number, afterPageNumber: number): Promise<PageRow>;
   deletePage(bookId: number, pageNumber: number): Promise<boolean>;
+
+  // OCR run history (one row per machine OCR; earliest = the original)
+  /** Appends an OCR run for a page; resolves page_id from (bookId, pageNumber). */
+  recordOcrRun(bookId: number, pageNumber: number, model: string | null, text: string): Promise<OcrRunRow>;
+  /** All OCR runs for a page, oldest first (so the first element is the original). */
+  getOcrRuns(bookId: number, pageNumber: number): Promise<OcrRunRow[]>;
 }

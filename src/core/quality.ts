@@ -12,7 +12,7 @@ import { verifyTranscription } from './ocr.js';
 const BAD_RATIO = 0.7;
 const CONCURRENCY = 5;
 
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
   async function worker(): Promise<void> {
@@ -33,7 +33,7 @@ async function verifyOnePage(bookId: number, page: PageRow): Promise<PageRow> {
   return { ...page, ocr_quality: quality, ocr_quality_reason: qReason };
 }
 
-function isTextPage(p: PageRow): boolean {
+export function isTextPage(p: PageRow): boolean {
   const t = (p.transcription ?? '').trim();
   return !p.has_illustration && t.length > 0 && t !== '[ILLUSTRATION]';
 }

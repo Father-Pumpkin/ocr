@@ -14,6 +14,9 @@ function coercePage(row) {
         updated_at: row.updated_at.toISOString(),
     };
 }
+function coerceOcrRun(row) {
+    return { ...row, created_at: row.created_at.toISOString() };
+}
 function coerceBatchJob(row) {
     return {
         ...row,
@@ -34,6 +37,12 @@ function coercePageSentiment(row) {
         ...row,
         created_at: row.created_at.toISOString(),
     };
+}
+function coerceMethod(row) {
+    return { ...row, created_at: row.created_at.toISOString() };
+}
+function coerceLexicon(row) {
+    return { ...row, created_at: row.created_at.toISOString() };
 }
 export class PostgresAdapter {
     sql;
@@ -81,6 +90,7 @@ export class PostgresAdapter {
         id           SERIAL PRIMARY KEY,
         batch_id     TEXT NOT NULL UNIQUE,
         book_ids     JSONB NOT NULL DEFAULT '[]',
+        kind         TEXT NOT NULL DEFAULT 'ocr',
         status       TEXT DEFAULT 'in_progress',
         created_by   TEXT,
         created_at   TIMESTAMPTZ DEFAULT NOW(),
@@ -100,16 +110,49 @@ export class PostgresAdapter {
       )
     `;
         await this.sql `
+      CREATE TABLE IF NOT EXISTS methods (
+        id         SERIAL PRIMARY KEY,
+        name       TEXT NOT NULL UNIQUE,
+        kind       TEXT NOT NULL,
+        config     TEXT NOT NULL DEFAULT '{}',
+        created_by TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+        await this.sql `
+      CREATE TABLE IF NOT EXISTS lexicons (
+        id         SERIAL PRIMARY KEY,
+        name       TEXT NOT NULL UNIQUE,
+        scale_min  DOUBLE PRECISION NOT NULL DEFAULT 0,
+        scale_max  DOUBLE PRECISION NOT NULL DEFAULT 1,
+        note       TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+        await this.sql `
+      CREATE TABLE IF NOT EXISTS lexicon_terms (
+        id           SERIAL PRIMARY KEY,
+        lexicon_id   INTEGER NOT NULL REFERENCES lexicons(id) ON DELETE CASCADE,
+        dimension_id INTEGER NOT NULL REFERENCES dimensions(id) ON DELETE CASCADE,
+        term         TEXT NOT NULL,
+        value        DOUBLE PRECISION NOT NULL,
+        UNIQUE(lexicon_id, dimension_id, term)
+      )
+    `;
+        // method_id nullable + no inline unique here; the migration block below makes
+        // it NOT NULL and installs the (page, dimension, method) unique — one path for
+        // both fresh and existing DBs.
+        await this.sql `
       CREATE TABLE IF NOT EXISTS page_sentiment (
         id           SERIAL PRIMARY KEY,
         page_id      INTEGER NOT NULL REFERENCES pages(id),
         dimension_id INTEGER NOT NULL REFERENCES dimensions(id) ON DELETE CASCADE,
+        method_id    INTEGER REFERENCES methods(id) ON DELETE CASCADE,
         score        FLOAT NOT NULL CHECK (score >= 0.0 AND score <= 1.0),
         rationale    TEXT,
         model        TEXT,
         created_by   TEXT,
-        created_at   TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE(page_id, dimension_id)
+        created_at   TIMESTAMPTZ DEFAULT NOW()
       )
     `;
         await this.sql `
@@ -122,6 +165,17 @@ export class PostgresAdapter {
         UNIQUE(book_id, page_number)
       )
     `;
+        await this.sql `
+      CREATE TABLE IF NOT EXISTS page_ocr_runs (
+        id          SERIAL PRIMARY KEY,
+        page_id     INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+        model       TEXT,
+        text        TEXT NOT NULL,
+        created_by  TEXT,
+        created_at  TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+        await this.sql `CREATE INDEX IF NOT EXISTS idx_page_ocr_runs_page ON page_ocr_runs (page_id, created_at)`;
         // Preserve the first OCR result for research. Additive migration for existing
         // DBs (the CREATE above is a no-op when the table already exists). Backfill
         // un-edited rows; edited rows keep NULL since their true original is gone.
@@ -132,6 +186,28 @@ export class PostgresAdapter {
         await this.sql `ALTER TABLE pages ADD COLUMN IF NOT EXISTS ocr_quality_reason TEXT`;
         await this.sql `ALTER TABLE books ADD COLUMN IF NOT EXISTS ocr_quality TEXT`;
         await this.sql `ALTER TABLE books ADD COLUMN IF NOT EXISTS ocr_quality_note TEXT`;
+        // Object-storage key for page images (R2)
+        await this.sql `ALTER TABLE page_images ADD COLUMN IF NOT EXISTS object_key TEXT`;
+        // Distinguish OCR batches from sentiment-scoring batches so resume routes correctly
+        await this.sql `ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'ocr'`;
+        // Sentiment scoring methods: seed the default LLM method, make `method` a
+        // first-class axis on page_sentiment (page+dimension+method), and migrate the
+        // old 2-column unique. Idempotent and safe on both fresh and existing DBs.
+        await this.sql `INSERT INTO methods (name, kind, config) VALUES ('claude-default', 'llm', '{}') ON CONFLICT (name) DO NOTHING`;
+        await this.sql `ALTER TABLE page_sentiment ADD COLUMN IF NOT EXISTS method_id INTEGER REFERENCES methods(id) ON DELETE CASCADE`;
+        await this.sql `UPDATE page_sentiment SET method_id = (SELECT id FROM methods WHERE name = 'claude-default') WHERE method_id IS NULL`;
+        await this.sql `ALTER TABLE page_sentiment ALTER COLUMN method_id SET NOT NULL`;
+        await this.sql `ALTER TABLE page_sentiment DROP CONSTRAINT IF EXISTS page_sentiment_page_id_dimension_id_key`;
+        await this.sql `CREATE UNIQUE INDEX IF NOT EXISTS page_sentiment_page_dim_method_key ON page_sentiment (page_id, dimension_id, method_id)`;
+        // Seed OCR run history from the legacy single-original column so existing
+        // pages still show their original in the new history view. Idempotent: only
+        // inserts for pages that have an original but no run yet.
+        await this.sql `
+      INSERT INTO page_ocr_runs (page_id, model, text, created_at)
+      SELECT id, NULL, original_transcription, created_at FROM pages p
+      WHERE original_transcription IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM page_ocr_runs r WHERE r.page_id = p.id)
+    `;
     }
     // ---- Book helpers ----
     async upsertBook(driveFileId, driveFileName, title) {
@@ -262,9 +338,28 @@ export class PostgresAdapter {
     `;
         return result.count > 0;
     }
+    async getAllTags() {
+        // tags is JSONB; expand each page's array to rows and dedupe.
+        const rows = await this.sql `
+      SELECT DISTINCT t AS tag
+      FROM pages, jsonb_array_elements_text(pages.tags) AS t
+      WHERE jsonb_typeof(pages.tags) = 'array'
+    `;
+        return rows
+            .map((r) => r.tag.trim())
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    }
     async setPageQuality(bookId, pageNumber, quality, reason) {
         const result = await this.sql `
       UPDATE pages SET ocr_quality = ${quality}, ocr_quality_reason = ${reason}
+      WHERE book_id = ${bookId} AND page_number = ${pageNumber}
+    `;
+        return result.count > 0;
+    }
+    async setPageIllustration(bookId, pageNumber, isIllustration) {
+        const result = await this.sql `
+      UPDATE pages SET has_illustration = ${isIllustration}, updated_at = NOW()
       WHERE book_id = ${bookId} AND page_number = ${pageNumber}
     `;
         return result.count > 0;
@@ -276,11 +371,11 @@ export class PostgresAdapter {
         return rows.length > 0 && rows[0].transcription != null && rows[0].transcription !== '';
     }
     // ---- Batch job helpers ----
-    async createBatchJob(batchId, bookIds) {
+    async createBatchJob(batchId, bookIds, kind = 'ocr') {
         const createdBy = process.env.APP_USER_ID ?? null;
         const rows = await this.sql `
-      INSERT INTO batch_jobs (batch_id, book_ids, created_by)
-      VALUES (${batchId}, ${this.sql.json(bookIds)}, ${createdBy})
+      INSERT INTO batch_jobs (batch_id, book_ids, kind, created_by)
+      VALUES (${batchId}, ${this.sql.json(bookIds)}, ${kind}, ${createdBy})
       RETURNING *
     `;
         return coerceBatchJob(rows[0]);
@@ -354,13 +449,69 @@ export class PostgresAdapter {
     `;
         return result.count > 0;
     }
-    // ---- Page sentiment helpers ----
-    async upsertPageSentiment(pageId, dimensionId, score, rationale, model) {
+    // ---- Scoring method + lexicon helpers ----
+    async createMethod(name, kind, config) {
         const createdBy = process.env.APP_USER_ID ?? null;
         const rows = await this.sql `
-      INSERT INTO page_sentiment (page_id, dimension_id, score, rationale, model, created_by)
-      VALUES (${pageId}, ${dimensionId}, ${score}, ${rationale}, ${model}, ${createdBy})
-      ON CONFLICT(page_id, dimension_id) DO UPDATE SET
+      INSERT INTO methods (name, kind, config, created_by)
+      VALUES (${name}, ${kind}, ${config}, ${createdBy})
+      RETURNING *
+    `;
+        return coerceMethod(rows[0]);
+    }
+    async getMethodByName(name) {
+        const rows = await this.sql `SELECT * FROM methods WHERE name = ${name}`;
+        return rows.length > 0 ? coerceMethod(rows[0]) : undefined;
+    }
+    async getAllMethods() {
+        const rows = await this.sql `SELECT * FROM methods ORDER BY name`;
+        return rows.map(coerceMethod);
+    }
+    async deleteMethod(id) {
+        const result = await this.sql `DELETE FROM methods WHERE id = ${id}`;
+        return result.count > 0;
+    }
+    async createLexicon(name, scaleMin, scaleMax, note) {
+        const rows = await this.sql `
+      INSERT INTO lexicons (name, scale_min, scale_max, note)
+      VALUES (${name}, ${scaleMin}, ${scaleMax}, ${note})
+      RETURNING *
+    `;
+        return coerceLexicon(rows[0]);
+    }
+    async getLexiconByName(name) {
+        const rows = await this.sql `SELECT * FROM lexicons WHERE name = ${name}`;
+        return rows.length > 0 ? coerceLexicon(rows[0]) : undefined;
+    }
+    async insertLexiconTerms(terms) {
+        const CHUNK = 1000;
+        let inserted = 0;
+        for (let i = 0; i < terms.length; i += CHUNK) {
+            const chunk = terms.slice(i, i + CHUNK).map((t) => ({
+                lexicon_id: t.lexiconId, dimension_id: t.dimensionId, term: t.term, value: t.value,
+            }));
+            await this.sql `
+        INSERT INTO lexicon_terms ${this.sql(chunk, 'lexicon_id', 'dimension_id', 'term', 'value')}
+        ON CONFLICT (lexicon_id, dimension_id, term) DO UPDATE SET value = EXCLUDED.value
+      `;
+            inserted += chunk.length;
+        }
+        return inserted;
+    }
+    async getLexiconTerms(lexiconId, dimensionId) {
+        const rows = await this.sql `
+      SELECT lexicon_id, dimension_id, term, value FROM lexicon_terms
+      WHERE lexicon_id = ${lexiconId} AND dimension_id = ${dimensionId}
+    `;
+        return rows.map((r) => ({ lexicon_id: r.lexicon_id, dimension_id: r.dimension_id, term: r.term, value: r.value }));
+    }
+    // ---- Page sentiment helpers ----
+    async upsertPageSentiment(pageId, dimensionId, methodId, score, rationale, model) {
+        const createdBy = process.env.APP_USER_ID ?? null;
+        const rows = await this.sql `
+      INSERT INTO page_sentiment (page_id, dimension_id, method_id, score, rationale, model, created_by)
+      VALUES (${pageId}, ${dimensionId}, ${methodId}, ${score}, ${rationale}, ${model}, ${createdBy})
+      ON CONFLICT (page_id, dimension_id, method_id) DO UPDATE SET
         score      = EXCLUDED.score,
         rationale  = EXCLUDED.rationale,
         model      = EXCLUDED.model,
@@ -463,6 +614,42 @@ export class PostgresAdapter {
         }
         return rows.map(coercePageSentiment);
     }
+    async getSentimentScores(bookIds, dimensionIds, methodIds) {
+        if (bookIds.length === 0)
+            return [];
+        const dimFilter = dimensionIds && dimensionIds.length > 0
+            ? this.sql `AND ps.dimension_id = ANY(${this.sql.array(dimensionIds)})`
+            : this.sql ``;
+        const methodFilter = methodIds && methodIds.length > 0
+            ? this.sql `AND ps.method_id = ANY(${this.sql.array(methodIds)})`
+            : this.sql ``;
+        const rows = await this.sql `
+      SELECT ps.page_id, ps.dimension_id, ps.method_id, ps.score, ps.rationale, ps.model,
+             p.book_id, p.page_number, p.tags,
+             b.title AS book_title, d.name AS dimension_name, m.name AS method_name
+      FROM page_sentiment ps
+      JOIN pages      p ON ps.page_id = p.id
+      JOIN books      b ON p.book_id = b.id
+      JOIN dimensions d ON ps.dimension_id = d.id
+      JOIN methods    m ON ps.method_id = m.id
+      WHERE p.book_id = ANY(${this.sql.array(bookIds)}) ${dimFilter} ${methodFilter}
+      ORDER BY p.book_id, p.page_number, ps.dimension_id, ps.method_id
+    `;
+        return rows.map((r) => ({
+            book_id: r.book_id,
+            book_title: r.book_title,
+            page_id: r.page_id,
+            page_number: r.page_number,
+            tags: Array.isArray(r.tags) ? r.tags.map((t) => String(t).trim()).filter(Boolean) : [],
+            dimension_id: r.dimension_id,
+            dimension_name: r.dimension_name,
+            method_id: r.method_id,
+            method_name: r.method_name,
+            score: r.score,
+            rationale: r.rationale,
+            model: r.model,
+        }));
+    }
     // ---- Page image helpers ----
     async getPageImage(bookId, pageNumber) {
         const rows = await this.sql `
@@ -475,6 +662,19 @@ export class PostgresAdapter {
       INSERT INTO page_images (book_id, page_number, image_data)
       VALUES (${bookId}, ${pageNumber}, ${imageData})
       ON CONFLICT (book_id, page_number) DO UPDATE SET image_data = EXCLUDED.image_data
+    `;
+    }
+    async getPageImageKey(bookId, pageNumber) {
+        const rows = await this.sql `
+      SELECT object_key FROM page_images WHERE book_id = ${bookId} AND page_number = ${pageNumber}
+    `;
+        return rows.length > 0 ? rows[0].object_key : null;
+    }
+    async setPageImageKey(bookId, pageNumber, objectKey) {
+        await this.sql `
+      INSERT INTO page_images (book_id, page_number, image_data, object_key)
+      VALUES (${bookId}, ${pageNumber}, '', ${objectKey})
+      ON CONFLICT (book_id, page_number) DO UPDATE SET object_key = EXCLUDED.object_key, image_data = ''
     `;
     }
     async cachePageImages(bookId, images) {
@@ -495,6 +695,7 @@ export class PostgresAdapter {
         return rows.length > 0 && rows[0].exists;
     }
     async deletePage(bookId, pageNumber) {
+        await this.sql `DELETE FROM page_ocr_runs WHERE page_id IN (SELECT id FROM pages WHERE book_id = ${bookId} AND page_number = ${pageNumber})`;
         const result = await this.sql `DELETE FROM pages WHERE book_id = ${bookId} AND page_number = ${pageNumber}`;
         if (result.count === 0)
             return false;
@@ -516,6 +717,27 @@ export class PostgresAdapter {
         await this.sql `INSERT INTO pages (book_id, page_number, transcription, status) VALUES (${bookId}, ${newPageNumber}, NULL, 'pending')`;
         const rows = await this.sql `SELECT * FROM pages WHERE book_id = ${bookId} AND page_number = ${newPageNumber}`;
         return rows[0];
+    }
+    async recordOcrRun(bookId, pageNumber, model, text) {
+        const createdBy = process.env.APP_USER_ID ?? null;
+        const rows = await this.sql `
+      INSERT INTO page_ocr_runs (page_id, model, text, created_by)
+      SELECT id, ${model}, ${text}, ${createdBy} FROM pages
+      WHERE book_id = ${bookId} AND page_number = ${pageNumber}
+      RETURNING *
+    `;
+        if (rows.length === 0)
+            throw new Error(`Page ${pageNumber} not found for book ${bookId}`);
+        return coerceOcrRun(rows[0]);
+    }
+    async getOcrRuns(bookId, pageNumber) {
+        const rows = await this.sql `
+      SELECT r.* FROM page_ocr_runs r
+      JOIN pages p ON p.id = r.page_id
+      WHERE p.book_id = ${bookId} AND p.page_number = ${pageNumber}
+      ORDER BY r.created_at, r.id
+    `;
+        return rows.map(coerceOcrRun);
     }
 }
 export async function createPostgresAdapter() {

@@ -6,6 +6,7 @@ import {
   updatePageText,
   setPageTagsData,
   retranscribePageData,
+  getPageOcrRunsData,
   insertPageData,
   deletePageData,
   verifyPageData,
@@ -114,12 +115,23 @@ booksRouter.patch('/books/:name/pages/:n', async (req, res) => {
   }
 });
 
-// POST /api/books/:name/pages/:n/retranscribe — re-run OCR on one page
+// POST /api/books/:name/pages/:n/retranscribe — re-run OCR on one page.
+// Records a new OCR run and returns it for preview; does not change the page text.
 booksRouter.post('/books/:name/pages/:n/retranscribe', async (req, res) => {
   try {
     const model = req.body?.model as string | undefined;
-    const page = await retranscribePageData(bookName(req), pageNum(req), model);
-    res.json({ page });
+    const { run, page } = await retranscribePageData(bookName(req), pageNum(req), model);
+    res.json({ run, page });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
+// GET /api/books/:name/pages/:n/ocr-runs — OCR run history (oldest first)
+booksRouter.get('/books/:name/pages/:n/ocr-runs', async (req, res) => {
+  try {
+    const runs = await getPageOcrRunsData(bookName(req), pageNum(req));
+    res.json({ runs });
   } catch (err) {
     handleError(err, res);
   }

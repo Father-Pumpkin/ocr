@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
-import type { BookRow, PageRow } from '../types';
+import type { BookRow, PageRow, OcrRun } from '../types';
 import { parseTags } from '../types';
 import { Loading, ErrorBox, EmptyState, Button, IconButton, Label, Badge } from '../components/ui';
 import {
@@ -19,6 +19,7 @@ import {
   Copy,
   Undo,
   Picture,
+  X,
 } from '../components/icons';
 import { SplitDialog } from '../components/SplitDialog';
 import { TagSelect } from '../components/TagSelect';
@@ -48,7 +49,11 @@ export function PageEditor() {
   const [allTags, setAllTags] = useState<string[]>([]);
   const [imgError, setImgError] = useState(false);
   const [imageVersion, setImageVersion] = useState(0); // cache-bust after upload
-  const [showOriginal, setShowOriginal] = useState(false);
+
+  // OCR history (original + each re-OCR) and the pending re-OCR preview
+  const [runs, setRuns] = useState<OcrRun[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [ocrPreview, setOcrPreview] = useState<OcrRun | null>(null);
 
   // Models for re-OCR
   const [models, setModels] = useState<string[]>([]);
@@ -121,11 +126,28 @@ export function PageEditor() {
     setText(page?.transcription ?? '');
     setTags(parseTags(page?.tags ?? '[]'));
     setImgError(false);
-    setShowOriginal(false);
+    setShowHistory(false);
+    setOcrPreview(null);
     setActionError(null);
     setSavedFlash(false);
     setCopied(false);
   }, [page]);
+
+  // Load the OCR run history for the current page.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getOcrRuns(name, pageNumber)
+      .then((d) => {
+        if (!cancelled) setRuns(d.runs);
+      })
+      .catch(() => {
+        if (!cancelled) setRuns([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [name, pageNumber]);
 
   const dirty =
     page != null &&
@@ -180,23 +202,22 @@ export function PageEditor() {
     }
   }
 
-  function onRestoreOriginal() {
-    if (page?.original_transcription != null) setText(page.original_transcription);
+  /** Replace the working text with a run's OCR (a pending edit the user can Save). */
+  function useRun(run: OcrRun) {
+    setText(run.text);
+    setOcrPreview(null);
   }
 
   async function onRetranscribe() {
-    if (
-      (dirty || page?.is_edited) &&
-      !window.confirm('Re-transcribing replaces the current text with fresh OCR. Any edits will be lost. Continue?')
-    ) {
-      return;
-    }
     setRetranscribing(true);
     setActionError(null);
     try {
-      const { page: updated } = await api.retranscribePage(name, pageNumber, selectedModel || undefined);
-      applyUpdatedPage(updated);
-      setText(updated.transcription ?? '');
+      // Records a new OCR run; does NOT touch the working text. The user previews
+      // it and applies it via "Use this" only if it's better — so no confirm here.
+      const { run } = await api.retranscribePage(name, pageNumber, selectedModel || undefined);
+      setRuns((prev) => [...prev, run]);
+      setOcrPreview(run);
+      setShowHistory(true);
     } catch (e) {
       setActionError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -303,7 +324,6 @@ export function PageEditor() {
 
   const driveUrl = book ? `https://drive.google.com/file/d/${book.drive_file_id}/view` : null;
   const imageUrl = `${api.pageImageUrl(name, pageNumber)}?v=${imageVersion}`;
-  const original = page.original_transcription;
   const isIllustration = page.has_illustration;
 
   return (
@@ -433,29 +453,76 @@ export function PageEditor() {
             className="min-h-64 flex-1 resize-y rounded-lg border border-border bg-surface p-3.5 font-mono text-sm leading-relaxed text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
           />
 
-          {/* Original OCR (research) */}
-          {original != null && original !== text && (
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowOriginal((s) => !s)}
-                className="text-xs text-muted transition-colors hover:text-ink"
-              >
-                {showOriginal ? '▾ Hide original OCR' : '▸ View original OCR'}
-              </button>
-              <button
-                onClick={onRestoreOriginal}
-                className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-ink"
-                title="Replace the text with the original machine OCR (you can still edit before saving)"
-              >
-                <Undo className="h-3.5 w-3.5" />
-                Restore original
-              </button>
+          {/* Re-OCR preview — compare the fresh OCR with the working text before applying */}
+          {ocrPreview && (
+            <div className="rounded-lg border border-accent/40 bg-surface-2 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-ink">
+                  New OCR{ocrPreview.model ? ` · ${ocrPreview.model}` : ''}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button variant="primary" size="sm" onClick={() => useRun(ocrPreview)}>
+                    <Check className="h-3.5 w-3.5" />
+                    Use this
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => setOcrPreview(null)}>
+                    <X className="h-3.5 w-3.5" />
+                    Discard
+                  </Button>
+                </div>
+              </div>
+              <p className="mb-1.5 text-xs text-muted">
+                Saved to history. Applying replaces the working text (you can still edit, then Save).
+              </p>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-surface p-2.5 font-mono text-xs text-ink">
+                {ocrPreview.text}
+              </pre>
             </div>
           )}
-          {showOriginal && original != null && (
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs text-muted">
-              {original}
-            </pre>
+
+          {/* OCR history — the original plus each re-transcription, any restorable */}
+          {runs.length > 0 && (
+            <div>
+              <button
+                onClick={() => setShowHistory((s) => !s)}
+                className="text-xs text-muted transition-colors hover:text-ink"
+              >
+                {showHistory ? '▾ Hide OCR history' : `▸ OCR history (${runs.length})`}
+              </button>
+              {showHistory && (
+                <ul className="mt-2 flex flex-col gap-2">
+                  {runs.map((run, i) => {
+                    const inUse = run.text === text;
+                    return (
+                      <li key={run.id} className="rounded-lg border border-border bg-surface-2 p-3">
+                        <div className="mb-1.5 flex items-center justify-between gap-2">
+                          <span className="text-xs">
+                            <span className="font-medium text-ink">{i === 0 ? 'Original' : 'Re-OCR'}</span>
+                            <span className="text-muted">
+                              {' · '}
+                              {run.model ?? 'unknown model'}
+                              {run.created_at ? ` · ${new Date(run.created_at).toLocaleString()}` : ''}
+                            </span>
+                          </span>
+                          <button
+                            onClick={() => useRun(run)}
+                            disabled={inUse}
+                            className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-ink disabled:opacity-40"
+                            title="Replace the working text with this OCR (you can still edit before saving)"
+                          >
+                            <Undo className="h-3.5 w-3.5" />
+                            {inUse ? 'In use' : 'Use this'}
+                          </button>
+                        </div>
+                        <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-surface p-2.5 font-mono text-xs text-muted">
+                          {run.text}
+                        </pre>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
           )}
 
           <div>
@@ -576,6 +643,8 @@ export function PageEditor() {
             setImgError(false);
             setImageVersion((v) => v + 1); // cache-bust so the new split image loads
             load();
+            // The left half may have just gained its original run — refresh history.
+            api.getOcrRuns(name, pageNumber).then((d) => setRuns(d.runs)).catch(() => {});
           }}
         />
       )}

@@ -19,8 +19,11 @@ import {
   deletePage,
   setBookTitle,
   setPageIllustration,
+  recordOcrRun,
+  getOcrRuns,
   type BookRow,
   type PageRow,
+  type OcrRunRow,
 } from './database.js';
 import { listPdfsInFolder, downloadPdf, type DriveFile } from './google-drive.js';
 import { renderAllPdfPages } from './render-pdf.js';
@@ -191,12 +194,17 @@ export async function listTags(): Promise<string[]> {
   return getAllTags();
 }
 
-/** Re-runs OCR on a single page using its cached image; returns the new row. */
+/**
+ * Re-runs OCR on a single page using its cached image and records it as a new
+ * OCR run (preserving the original and any prior runs). Does NOT overwrite the
+ * working transcription — the caller previews the candidate and applies it via a
+ * normal edit if it's better. Returns the new run plus the (unchanged) page row.
+ */
 export async function retranscribePageData(
   bookName: string,
   pageNumber: number,
   model: string = DEFAULT_MODEL,
-): Promise<PageRow> {
+): Promise<{ run: OcrRunRow; page: PageRow }> {
   const book = await requireBook(bookName);
   const { imageData } = await getPageImageData(bookName, pageNumber);
   if (!imageData) {
@@ -205,12 +213,19 @@ export async function retranscribePageData(
     );
   }
   const transcription = await transcribeSinglePageImage(imageData, model);
-  // markEdited=false: this is a fresh machine transcription, not a manual edit.
-  await updatePageTranscription(book.id, pageNumber, transcription, false);
-  // Auto-verify the fresh transcription (also refreshes the book-level verdict).
-  const page = await verifyPageById(book.id, pageNumber);
+  const run = await recordOcrRun(book.id, pageNumber, model, transcription);
+  const page = await getSinglePage(book.id, pageNumber);
   if (!page) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
-  return page;
+  return { run, page };
+}
+
+/** Returns the OCR run history for a page (oldest first; first element = original). */
+export async function getPageOcrRunsData(
+  bookName: string,
+  pageNumber: number,
+): Promise<OcrRunRow[]> {
+  const book = await requireBook(bookName);
+  return getOcrRuns(book.id, pageNumber);
 }
 
 /** Inserts a blank page after the given number; returns the new page row. */
@@ -278,7 +293,11 @@ export async function markPageOkData(bookName: string, pageNumber: number): Prom
 /**
  * Splits a two-page spread into two pages at `ratio` of the image width. The
  * current page keeps the left half + leftText; a new page after it gets the
- * right half + rightText. Both are marked edited. Returns the two page rows.
+ * right half + rightText. Both are marked edited.
+ *
+ * The spread's original OCR is the *whole* spread, so it's assigned as the
+ * original OCR run of BOTH halves (each half then shows the same full-spread
+ * original in its history). Every other page is left untouched.
  */
 export async function splitPageData(
   bookName: string,
@@ -289,6 +308,13 @@ export async function splitPageData(
 ): Promise<{ left: PageRow; right: PageRow }> {
   const book = await requireBook(bookName);
   const { imageData } = await getPageImageData(bookName, pageNumber);
+
+  // Capture the complete spread original BEFORE mutating, so both halves share it.
+  const src = await getSinglePage(book.id, pageNumber);
+  const existingRuns = await getOcrRuns(book.id, pageNumber);
+  const originalRun = existingRuns[0];
+  const originalText = originalRun?.text ?? src?.original_transcription ?? src?.transcription ?? '';
+  const originalModel = originalRun?.model ?? null;
 
   let leftImg: string | null = null;
   let rightImg: string | null = null;
@@ -305,6 +331,16 @@ export async function splitPageData(
   await updatePageTranscription(book.id, pageNumber + 1, rightText, true);
   if (leftImg) await writePageImageBase64(book.id, pageNumber, leftImg);
   if (rightImg) await writePageImageBase64(book.id, pageNumber + 1, rightImg);
+
+  // Give each half the full-spread original as its first OCR run. The left page
+  // usually already has it (its runs are preserved); the new right page gets it.
+  if (originalText) {
+    for (const pn of [pageNumber, pageNumber + 1]) {
+      if ((await getOcrRuns(book.id, pn)).length === 0) {
+        await recordOcrRun(book.id, pn, originalModel, originalText);
+      }
+    }
+  }
 
   const left = await getSinglePage(book.id, pageNumber);
   const right = await getSinglePage(book.id, pageNumber + 1);

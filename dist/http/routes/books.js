@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getBookPagesData, getPageImageData, setPageImageData, updatePageText, setPageTagsData, retranscribePageData, insertPageData, deletePageData, verifyPageData, verifyBookData, NotFoundError, AuthRequiredError, } from '../../core/book-service.js';
+import { getBookPagesData, getPageImageData, setPageImageData, updatePageText, setPageTagsData, retranscribePageData, getPageOcrRunsData, insertPageData, deletePageData, verifyPageData, verifyBookData, markPageOkData, splitPageData, renameBookData, setPageIllustrationData, NotFoundError, AuthRequiredError, } from '../../core/book-service.js';
 export const booksRouter = Router();
 /** Maps thrown errors to HTTP responses consistently across routes. */
 function handleError(err, res) {
@@ -45,7 +45,8 @@ booksRouter.get('/books/:name/pages/:n/image', async (req, res) => {
             return;
         }
         const buf = Buffer.from(imageData, 'base64');
-        res.set('Content-Type', 'image/jpeg');
+        const isPng = buf.length > 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+        res.set('Content-Type', isPng ? 'image/png' : 'image/jpeg');
         res.set('Cache-Control', 'no-cache');
         res.send(buf);
     }
@@ -93,12 +94,23 @@ booksRouter.patch('/books/:name/pages/:n', async (req, res) => {
         handleError(err, res);
     }
 });
-// POST /api/books/:name/pages/:n/retranscribe — re-run OCR on one page
+// POST /api/books/:name/pages/:n/retranscribe — re-run OCR on one page.
+// Records a new OCR run and returns it for preview; does not change the page text.
 booksRouter.post('/books/:name/pages/:n/retranscribe', async (req, res) => {
     try {
         const model = req.body?.model;
-        const page = await retranscribePageData(bookName(req), pageNum(req), model);
-        res.json({ page });
+        const { run, page } = await retranscribePageData(bookName(req), pageNum(req), model);
+        res.json({ run, page });
+    }
+    catch (err) {
+        handleError(err, res);
+    }
+});
+// GET /api/books/:name/pages/:n/ocr-runs — OCR run history (oldest first)
+booksRouter.get('/books/:name/pages/:n/ocr-runs', async (req, res) => {
+    try {
+        const runs = await getPageOcrRunsData(bookName(req), pageNum(req));
+        res.json({ runs });
     }
     catch (err) {
         handleError(err, res);
@@ -144,6 +156,54 @@ booksRouter.delete('/books/:name/pages/:n', async (req, res) => {
     try {
         await deletePageData(bookName(req), pageNum(req));
         res.json({ ok: true });
+    }
+    catch (err) {
+        handleError(err, res);
+    }
+});
+// POST /api/books/:name/pages/:n/mark-ok — manually accept a page's OCR
+booksRouter.post('/books/:name/pages/:n/mark-ok', async (req, res) => {
+    try {
+        const page = await markPageOkData(bookName(req), pageNum(req));
+        res.json({ page });
+    }
+    catch (err) {
+        handleError(err, res);
+    }
+});
+// POST /api/books/:name/pages/:n/split — split a spread into two pages
+booksRouter.post('/books/:name/pages/:n/split', async (req, res) => {
+    try {
+        const { leftText, rightText, ratio } = req.body ?? {};
+        const r = typeof ratio === 'number' && Number.isFinite(ratio) ? ratio : 0.5;
+        const result = await splitPageData(bookName(req), pageNum(req), String(leftText ?? ''), String(rightText ?? ''), r);
+        res.json(result);
+    }
+    catch (err) {
+        handleError(err, res);
+    }
+});
+// PATCH /api/books/:name — rename a book (its display title)
+booksRouter.patch('/books/:name', async (req, res) => {
+    try {
+        const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+        if (!title) {
+            res.status(400).json({ error: 'title (a non-empty string) is required.' });
+            return;
+        }
+        const book = await renameBookData(bookName(req), title);
+        res.json({ book });
+    }
+    catch (err) {
+        handleError(err, res);
+    }
+});
+// POST /api/books/:name/pages/:n/illustration — toggle the illustration-only flag
+booksRouter.post('/books/:name/pages/:n/illustration', async (req, res) => {
+    try {
+        const isIllustration = Boolean(req.body?.isIllustration);
+        const page = await setPageIllustrationData(bookName(req), pageNum(req), isIllustration);
+        res.json({ page });
     }
     catch (err) {
         handleError(err, res);

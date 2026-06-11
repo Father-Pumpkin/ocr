@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { upsertPage, updatePageTranscription, updateBookStatus, hasExistingTranscription, getBatchJob, updateBatchJobStatus, } from './database.js';
+import { upsertPage, updatePageTranscription, updateBookStatus, hasExistingTranscription, getBatchJob, updateBatchJobStatus, upsertPageSentiment, recordOcrRun, } from './database.js';
 export const DEFAULT_MODEL = 'claude-sonnet-4-6';
 export const AVAILABLE_MODELS = [
     'claude-sonnet-4-6',
@@ -229,6 +229,7 @@ export async function transcribeBookPdf(bookId, bookTitle, pdfBuffer, overwrite,
             continue;
         }
         await upsertPage(bookId, pageNumber, transcription);
+        await recordOcrRun(bookId, pageNumber, model, transcription);
         process.stderr.write(`[OCR MCP] Stored ${bookTitle} page ${pageNumber}\n`);
         transcribed++;
     }
@@ -306,6 +307,8 @@ export async function checkAndProcessBatch(batchId) {
                 const pages = parsePdfTranscription(text);
                 for (const { pageNumber, transcription } of pages) {
                     await upsertPage(bookId, pageNumber, transcription, customId);
+                    // Per-result model isn't exposed by the batch results API → null label.
+                    await recordOcrRun(bookId, pageNumber, null, transcription);
                     processedCount++;
                 }
                 await updateBookStatus(bookId, 'complete', pages.length);
@@ -386,6 +389,7 @@ export async function processPageImageBatch(batchId) {
             const tb = result.result.message.content.find((b) => b.type === 'text');
             const text = (tb ? tb.text.trim() : '') || '[ILLUSTRATION]';
             await updatePageTranscription(bookId, pageNumber, text, false);
+            await recordOcrRun(bookId, pageNumber, null, text);
             const updated = await verifyPageById(bookId, pageNumber);
             if (updated && updated.ocr_quality === 'suspect')
                 stillSuspect++;
@@ -397,4 +401,126 @@ export async function processPageImageBatch(batchId) {
         }
     }
     return { status: 'ended', cleared, stillSuspect, errored };
+}
+function sentimentSystemPrompt(dim, promptOverride) {
+    // A custom LLM method supplies its own rubric; otherwise use the dimension's description.
+    const rubric = promptOverride?.trim() || dim.description;
+    return `You are a literary sentiment analyst scoring ONE page of a Spanish children's book along a single dimension.
+
+DIMENSION: ${dim.name}
+WHAT IT MEASURES: ${rubric}
+SCALE: 0.0 = "${dim.min_label}", 1.0 = "${dim.max_label}". Use the full range. 0.5 means neutral, mixed, or not applicable.
+
+You are given ONLY the page's transcribed text (no image). Judge this page's text on the dimension above. Children's pages are often short — that is normal and not a reason to avoid scoring.
+
+Respond with ONLY a JSON object and nothing else:
+{"score": <number between 0.0 and 1.0>, "rationale": "<one short English sentence>"}`;
+}
+/** Extract {score, rationale} from a model response, clamping score to [0,1]. Null on any failure. */
+function parseSentiment(content) {
+    const block = content.find((b) => b.type === 'text');
+    const raw = block ? block.text : '';
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match)
+        return null;
+    try {
+        const parsed = JSON.parse(match[0]);
+        if (typeof parsed.score !== 'number' || Number.isNaN(parsed.score))
+            return null;
+        return {
+            score: Math.min(1, Math.max(0, parsed.score)),
+            rationale: (parsed.rationale ?? '').trim(),
+        };
+    }
+    catch {
+        return null;
+    }
+}
+/**
+ * Score a single page's transcription on one dimension. Cheap (text-only) and
+ * paced by the shared verifier throttle. Returns null for empty/illustration
+ * pages and on any parse failure — callers treat null as "not scored".
+ */
+export async function scoreTranscription(text, dimension, model = DEFAULT_MODEL, promptOverride) {
+    const trimmed = (text ?? '').trim();
+    if (!trimmed || trimmed === '[ILLUSTRATION]')
+        return null;
+    await throttleVerify();
+    const client = getAnthropicClient();
+    const response = await client.messages.create({
+        model,
+        max_tokens: 256,
+        system: sentimentSystemPrompt(dimension, promptOverride),
+        messages: [{ role: 'user', content: trimmed }],
+    });
+    return parseSentiment(response.content);
+}
+export async function createSentimentBatch(items, model = DEFAULT_MODEL) {
+    const client = getAnthropicClient();
+    const requests = items.map((it) => ({
+        custom_id: `sent-${it.pageId}-${it.dimensionId}-${it.methodId}`,
+        params: {
+            model,
+            max_tokens: 256,
+            system: sentimentSystemPrompt(it.dimension, it.promptOverride),
+            messages: [{ role: 'user', content: it.text }],
+        },
+    }));
+    process.stderr.write(`[OCR MCP] Creating sentiment batch with ${requests.length} item(s) using ${model}...\n`);
+    const batch = await client.messages.batches.create({ requests });
+    process.stderr.write(`[OCR MCP] Sentiment batch created: ${batch.id}\n`);
+    return batch.id;
+}
+export async function checkAndProcessSentimentBatch(batchId) {
+    const client = getAnthropicClient();
+    const batchJob = await getBatchJob(batchId);
+    if (!batchJob) {
+        throw new Error(`No batch job found with ID: ${batchId}`);
+    }
+    const batch = await client.messages.batches.retrieve(batchId);
+    const apiStatus = batch.processing_status;
+    process.stderr.write(`[OCR MCP] Sentiment batch ${batchId} status: ${apiStatus}\n`);
+    if (apiStatus !== 'ended') {
+        const counts = batch.request_counts;
+        return {
+            status: apiStatus,
+            processedCount: 0,
+            summary: `Sentiment batch is still processing. Requests: ${counts.processing} processing, ${counts.succeeded} succeeded, ${counts.errored} errored, ${counts.canceled} canceled, ${counts.expired} expired.`,
+        };
+    }
+    let processedCount = 0;
+    const errors = [];
+    for await (const result of await client.messages.batches.results(batchId)) {
+        const m = result.custom_id.match(/^sent-(\d+)-(\d+)-(\d+)$/);
+        if (!m) {
+            errors.push(`Could not parse custom_id: ${result.custom_id}`);
+            continue;
+        }
+        const pageId = parseInt(m[1], 10);
+        const dimensionId = parseInt(m[2], 10);
+        const methodId = parseInt(m[3], 10);
+        if (result.result.type === 'succeeded') {
+            const parsed = parseSentiment(result.result.message.content);
+            if (parsed) {
+                await upsertPageSentiment(pageId, dimensionId, methodId, parsed.score, parsed.rationale || null, result.result.message.model);
+                processedCount++;
+            }
+            else {
+                errors.push(`Unparseable result for ${result.custom_id}`);
+            }
+        }
+        else if (result.result.type === 'errored') {
+            errors.push(`Error for ${result.custom_id}: ${result.result.error.type}`);
+        }
+        else {
+            errors.push(`Unexpected result type for ${result.custom_id}`);
+        }
+    }
+    await updateBatchJobStatus(batchId, 'complete');
+    const errorSummary = errors.length > 0 ? `\nErrors (first 20):\n${errors.slice(0, 20).join('\n')}` : '';
+    return {
+        status: 'complete',
+        processedCount,
+        summary: `Sentiment batch complete. Stored ${processedCount} score(s).${errorSummary}`,
+    };
 }

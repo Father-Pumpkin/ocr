@@ -4,7 +4,7 @@ import { verifyTranscription } from './ocr.js';
 // better re-transcribed wholesale than page-by-page.
 const BAD_RATIO = 0.7;
 const CONCURRENCY = 5;
-async function mapLimit(items, limit, fn) {
+export async function mapLimit(items, limit, fn) {
     const results = new Array(items.length);
     let next = 0;
     async function worker() {
@@ -23,7 +23,7 @@ async function verifyOnePage(bookId, page) {
     await setPageQuality(bookId, page.page_number, quality, qReason);
     return { ...page, ocr_quality: quality, ocr_quality_reason: qReason };
 }
-function isTextPage(p) {
+export function isTextPage(p) {
     const t = (p.transcription ?? '').trim();
     return !p.has_illustration && t.length > 0 && t !== '[ILLUSTRATION]';
 }
@@ -54,6 +54,22 @@ export async function verifyPageById(bookId, pageNumber) {
     if (!target)
         return null;
     const updated = await verifyOnePage(bookId, target);
+    const merged = pages.map((p) => (p.page_number === pageNumber ? updated : p));
+    await scoreAndStoreBook(bookId, merged);
+    return updated;
+}
+/**
+ * Manually mark a page's OCR as acceptable (user accepts a flagged or unchecked
+ * transcription), clearing any suspect reason, then recompute the book verdict.
+ * Returns the updated page, or null if the page doesn't exist.
+ */
+export async function markPageOkById(bookId, pageNumber) {
+    const pages = await getPages(bookId);
+    const target = pages.find((p) => p.page_number === pageNumber);
+    if (!target)
+        return null;
+    await setPageQuality(bookId, pageNumber, 'ok', null);
+    const updated = { ...target, ocr_quality: 'ok', ocr_quality_reason: null };
     const merged = pages.map((p) => (p.page_number === pageNumber ? updated : p));
     await scoreAndStoreBook(bookId, merged);
     return updated;

@@ -1,4 +1,4 @@
-import type { BookRow, PageRow } from '../types';
+import type { BookRow, PageRow, OcrRun } from '../types';
 
 /**
  * Thin typed wrappers over the local HTTP backend. All paths are relative so
@@ -149,11 +149,16 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  /** Re-runs OCR and returns the candidate run (does not change the page text). */
   retranscribePage: (name: string, n: number, model?: string) =>
-    request<{ page: PageRow }>(`/api/books/${enc(name)}/pages/${n}/retranscribe`, {
+    request<{ run: OcrRun; page: PageRow }>(`/api/books/${enc(name)}/pages/${n}/retranscribe`, {
       method: 'POST',
       body: JSON.stringify({ model }),
     }),
+
+  /** OCR run history for a page (oldest first; first element is the original). */
+  getOcrRuns: (name: string, n: number) =>
+    request<{ runs: OcrRun[] }>(`/api/books/${enc(name)}/pages/${n}/ocr-runs`),
 
   verifyPage: (name: string, n: number) =>
     request<{ page: PageRow }>(`/api/books/${enc(name)}/pages/${n}/verify`, { method: 'POST' }),
