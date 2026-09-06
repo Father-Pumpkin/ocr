@@ -70,6 +70,12 @@ export interface AnalyzeResult {
   methods: string[];
   tags: string[];
   groups: AnalyzeGroup[];
+  /**
+   * Every score row that survived the filters, ungrouped. The aggregation above
+   * is a view of these; exports and any other per-page consumer use them directly
+   * rather than re-running the same query with the same filters.
+   */
+  rows: SentimentScoreDetail[];
   coverage: {
     booksMatched: number;
     textPages: number;
@@ -151,6 +157,7 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
     methods: methods.map((m) => m.name),
     tags: tagFilter,
     groups: [],
+    rows: [],
     coverage: { booksMatched: books.length, textPages: 0, scoredPages: 0, scores: 0, ...extra },
     summary,
   });
@@ -236,6 +243,7 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
     methods: [...new Set(rows.map((r) => r.method_name))].sort(),
     tags: tagFilter,
     groups,
+    rows,
     coverage: { booksMatched: books.length, textPages, scoredPages, scores: rows.length },
     summary,
   };

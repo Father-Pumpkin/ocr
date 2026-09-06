@@ -3,8 +3,9 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import type { PageRow } from '../types';
 import { parseTags } from '../types';
-import { Loading, ErrorBox, EmptyState, Card, Button, IconButton, Badge } from '../components/ui';
-import { ChevronLeft, ShieldCheck, Alert, ImageOff, Download, Pencil, Check } from '../components/icons';
+import { Loading, ErrorBox, EmptyState, Card, Button, IconButton, Badge, buttonClass } from '../components/ui';
+import { ChevronLeft, ShieldCheck, Alert, ImageOff, Download, Pencil, Check, Gauge } from '../components/icons';
+import { useIsMember } from '../lib/session';
 
 function snippet(page: PageRow): string {
   if (page.has_illustration) return '[illustration]';
@@ -18,6 +19,9 @@ type BookMeta = { title: string; ocr_quality: string | null; ocr_quality_note: s
 export function BookDetail() {
   const { name = '' } = useParams();
   const navigate = useNavigate();
+  // Renaming and the OCR quality check both write (and the latter spends), so
+  // they're member-only. Reading the book and analysing it are not.
+  const isMember = useIsMember();
   const [book, setBook] = useState<BookMeta | null>(null);
   const [pages, setPages] = useState<PageRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -142,37 +146,49 @@ export function BookDetail() {
         ) : (
           <div className="flex items-center gap-2">
             <h1 className="font-serif text-3xl font-semibold tracking-tight text-ink">{book?.title ?? name}</h1>
-            <IconButton
-              className="h-8 w-8"
-              aria-label="Rename book"
-              title="Rename book"
-              onClick={() => {
-                setTitleInput(book?.title ?? name);
-                setRenaming(true);
-              }}
-            >
-              <Pencil className="h-4 w-4" />
-            </IconButton>
+            {isMember && (
+              <IconButton
+                className="h-8 w-8"
+                aria-label="Rename book"
+                title="Rename book"
+                onClick={() => {
+                  setTitleInput(book?.title ?? name);
+                  setRenaming(true);
+                }}
+              >
+                <Pencil className="h-4 w-4" />
+              </IconButton>
+            )}
           </div>
         )}
 
         {pages && pages.length > 0 && (
           <div className="flex flex-col items-end gap-1.5">
             <div className="flex items-center gap-2">
+              <Link
+                to={`/analysis?book=${encodeURIComponent(book?.title ?? name)}`}
+                className={buttonClass('secondary', 'sm')}
+                title="Run a sentiment analysis scoped to this book"
+              >
+                <Gauge className="h-4 w-4" />
+                Analyse
+              </Link>
               <Button variant="secondary" size="sm" onClick={exportTxt} title="Download the full transcription as a .txt">
                 <Download className="h-4 w-4" />
                 Download
               </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={onCheck}
-                disabled={checking}
-                title="Run a cheap Sonnet proofreader over every page"
-              >
-                <ShieldCheck className="h-4 w-4" />
-                {checking ? 'Checking…' : 'Check OCR quality'}
-              </Button>
+              {isMember && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={onCheck}
+                  disabled={checking}
+                  title="Run a cheap Sonnet proofreader over every page"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  {checking ? 'Checking…' : 'Check OCR quality'}
+                </Button>
+              )}
             </div>
             {checkMsg && <span className="text-xs text-muted">{checkMsg}</span>}
           </div>

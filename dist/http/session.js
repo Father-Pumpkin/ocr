@@ -6,6 +6,11 @@
  * so it works on any host (including scale-to-zero / multi-instance).
  *
  * Auth is enforced when NODE_ENV=production, or locally when AUTH_ENABLED=1.
+ *
+ * There are two tiers. Any verified Google account can sign in and read; only
+ * emails on the allowlist ("members") can change anything or spend API budget.
+ * The token deliberately carries only the email, never the role — see
+ * roleForEmail() for why.
  */
 import crypto from 'node:crypto';
 const SESSION_COOKIE = 'ocr_session';
@@ -31,9 +36,9 @@ function sessionSecret() {
 export function baseUrl() {
     return (process.env.BASE_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
 }
-// --- Allowlist -------------------------------------------------------------
-// Default allowlist for this private 2-person app. ALLOWED_EMAILS (comma-separated)
+// Allowlisted accounts get write + AI access. ALLOWED_EMAILS (comma-separated)
 // overrides this when set, so access can change without a code change / redeploy.
+// Everyone else who signs in is a guest, not rejected.
 const DEFAULT_ALLOWED_EMAILS = ['mitchellornesmith@gmail.com', 'jamesahs@umich.edu'];
 export function allowedEmails() {
     const fromEnv = (process.env.ALLOWED_EMAILS ?? '')
@@ -44,6 +49,15 @@ export function allowedEmails() {
 }
 export function isEmailAllowed(email) {
     return allowedEmails().includes(email.trim().toLowerCase());
+}
+/**
+ * The tier an email belongs to *right now*. Called per request rather than
+ * stored in the session token: tokens live for seven days, so a baked-in role
+ * would keep a removed account privileged for up to a week. Deriving it means
+ * editing ALLOWED_EMAILS takes effect on the very next request.
+ */
+export function roleForEmail(email) {
+    return isEmailAllowed(email) ? 'member' : 'guest';
 }
 // --- Token sign / verify ---------------------------------------------------
 function b64url(input) {

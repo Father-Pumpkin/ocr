@@ -1,7 +1,12 @@
 /**
  * "Sign in with Google" login flow. Reuses the same Google OAuth client as
  * Drive (GOOGLE_CLIENT_ID/SECRET) but with login scopes and its own redirect
- * URI. On success, only emails in ALLOWED_EMAILS get a session cookie.
+ * URI.
+ *
+ * Any account with a verified email gets a session — the allowlist is no longer
+ * a gate on signing in, it decides what you can *do* once you have. See
+ * middleware/require-auth: guests read, members write. Access control lives
+ * there, on each route, not here.
  *
  * Mounted at /api/auth (BEFORE the requireAuth gate) so these routes stay public:
  *   GET  /api/auth/google/login     -> redirect to Google consent
@@ -11,7 +16,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { google } from 'googleapis';
-import { baseUrl, isEmailAllowed, createSessionToken, sessionCookie, clearSessionCookie, stateCookie, clearStateCookie, readCookie, STATE_COOKIE, } from '../session.js';
+import { baseUrl, createSessionToken, sessionCookie, clearSessionCookie, stateCookie, clearStateCookie, readCookie, STATE_COOKIE, } from '../session.js';
 export const loginRouter = Router();
 function loginRedirectUri() {
     return `${baseUrl()}/api/auth/google/callback`;
@@ -65,11 +70,8 @@ loginRouter.get('/google/callback', async (req, res) => {
             res.status(403).send(errorPage('Your Google account did not return a verified email address.'));
             return;
         }
-        if (!isEmailAllowed(email)) {
-            res.setHeader('Set-Cookie', clearStateCookie());
-            res.status(403).send(errorPage(`${email} is not on the allowlist for this app.`));
-            return;
-        }
+        // No allowlist check here: a non-allowlisted account becomes a guest rather
+        // than being turned away. What a guest may do is enforced per route.
         res.setHeader('Set-Cookie', [sessionCookie(createSessionToken(email)), clearStateCookie()]);
         res.redirect('/');
     }

@@ -85,6 +85,7 @@ export async function analyzeSentiment(input) {
         methods: methods.map((m) => m.name),
         tags: tagFilter,
         groups: [],
+        rows: [],
         coverage: { booksMatched: books.length, textPages: 0, scoredPages: 0, scores: 0, ...extra },
         summary,
     });
@@ -163,6 +164,7 @@ export async function analyzeSentiment(input) {
         methods: [...new Set(rows.map((r) => r.method_name))].sort(),
         tags: tagFilter,
         groups,
+        rows,
         coverage: { booksMatched: books.length, textPages, scoredPages, scores: rows.length },
         summary,
     };

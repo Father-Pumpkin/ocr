@@ -117,6 +117,16 @@ export async function getPageImageData(bookName, pageNumber) {
     }
     return { imageData: images[pageNumber - 1] ?? null, driveUrl };
 }
+/**
+ * A page image, but only if it is already cached — never renders. The public
+ * tier serves images through this: `getPageImageData` falls back to downloading
+ * the PDF from Drive and rasterizing every page on a miss, which is far too
+ * expensive to expose to anyone who can sign in with a Google account.
+ */
+export async function getCachedPageImage(bookName, pageNumber) {
+    const book = await requireBook(bookName);
+    return readPageImageBase64(book.id, pageNumber);
+}
 /** Updates a page's transcription (marks it edited) and returns the new row. */
 export async function updatePageText(bookName, pageNumber, transcription) {
     const book = await requireBook(bookName);

@@ -106,6 +106,13 @@ export interface LexiconRow {
   created_at: string;
 }
 
+/** An imported lexicon plus the derived facts the picker shows: size and coverage. */
+export interface LexiconSummary extends LexiconRow {
+  term_count: number;
+  /** Names of the dimensions this lexicon has terms for. */
+  dimensions: string[];
+}
+
 /** One lexicon entry: a term's value (normalized 0–1) for a given construct/dimension. */
 export interface LexiconTermRow {
   lexicon_id: number;
@@ -166,6 +173,8 @@ export interface DatabaseAdapter {
   getBatchJob(batchId: string): Promise<BatchJobRow | undefined>;
   updateBatchJobStatus(batchId: string, status: string): Promise<void>;
   getInProgressBatchJobs(): Promise<BatchJobRow[]>;
+  /** Recent jobs of one kind, newest first — powers the web app's batch panel. */
+  getRecentBatchJobs(kind: string, limit: number): Promise<BatchJobRow[]>;
 
   // Dimensions
   createDimension(name: string, description: string, minLabel: string, maxLabel: string): Promise<DimensionRow>;
@@ -183,6 +192,10 @@ export interface DatabaseAdapter {
   // Lexicons
   createLexicon(name: string, scaleMin: number, scaleMax: number, note: string | null): Promise<LexiconRow>;
   getLexiconByName(name: string): Promise<LexiconRow | undefined>;
+  /** Every imported lexicon with its term count and the dimensions it covers — powers the picker. */
+  getAllLexicons(): Promise<LexiconSummary[]>;
+  /** Deletes a lexicon, its terms, and any methods bound to it. */
+  deleteLexicon(id: number): Promise<boolean>;
   /** Bulk-insert normalized lexicon entries; returns the count inserted. */
   insertLexiconTerms(terms: Array<{ lexiconId: number; dimensionId: number; term: string; value: number }>): Promise<number>;
   getLexiconTerms(lexiconId: number, dimensionId: number): Promise<LexiconTermRow[]>;

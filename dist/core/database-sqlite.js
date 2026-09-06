@@ -1,6 +1,16 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+/** The lexicon a `kind: 'lexicon'` method is bound to, or null if its config is unusable. */
+function lexiconIdOfConfig(config) {
+    try {
+        const parsed = JSON.parse(config || '{}');
+        return typeof parsed.lexicon_id === 'number' ? parsed.lexicon_id : null;
+    }
+    catch {
+        return null;
+    }
+}
 /** Parse a stored tags JSON string into a trimmed string[], tolerating malformed data. */
 function parseTagsJson(raw) {
     if (!raw)
@@ -463,6 +473,11 @@ export class SqliteAdapter {
         return Promise.resolve(this.db.prepare(`SELECT * FROM batch_jobs WHERE status = 'in_progress'`).all());
     }
     // ---- Dimension helpers ----
+    async getRecentBatchJobs(kind, limit) {
+        return Promise.resolve(this.db
+            .prepare('SELECT * FROM batch_jobs WHERE kind = ? ORDER BY created_at DESC, id DESC LIMIT ?')
+            .all(kind, limit));
+    }
     async createDimension(name, description, minLabel, maxLabel) {
         const createdBy = process.env.APP_USER_ID ?? null;
         this.db.prepare(`
@@ -530,6 +545,32 @@ export class SqliteAdapter {
     }
     async getLexiconByName(name) {
         return Promise.resolve(this.db.prepare('SELECT * FROM lexicons WHERE name = ?').get(name));
+    }
+    async getAllLexicons() {
+        const rows = this.db.prepare(`
+      SELECT l.*,
+             (SELECT COUNT(*) FROM lexicon_terms t WHERE t.lexicon_id = l.id) AS term_count,
+             (SELECT GROUP_CONCAT(DISTINCT d.name)
+                FROM lexicon_terms t JOIN dimensions d ON d.id = t.dimension_id
+               WHERE t.lexicon_id = l.id) AS dimension_names
+        FROM lexicons l
+       ORDER BY l.name
+    `).all();
+        return Promise.resolve(rows.map(({ dimension_names, ...lex }) => ({
+            ...lex,
+            dimensions: dimension_names ? dimension_names.split(',').filter(Boolean).sort() : [],
+        })));
+    }
+    async deleteLexicon(id) {
+        // Methods bound to this lexicon would be left dangling — drop them (and, by
+        // cascade, the scores they produced) alongside the lexicon's terms.
+        const methods = this.db.prepare(`SELECT id, config FROM methods WHERE kind = 'lexicon'`).all();
+        for (const m of methods) {
+            if (lexiconIdOfConfig(m.config) === id)
+                this.db.prepare('DELETE FROM methods WHERE id = ?').run(m.id);
+        }
+        const r = this.db.prepare('DELETE FROM lexicons WHERE id = ?').run(id);
+        return Promise.resolve(r.changes > 0);
     }
     async insertLexiconTerms(terms) {
         const stmt = this.db.prepare(`
