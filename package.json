@@ -28,7 +28,8 @@
     "grade-all": "tsx scripts/grade-all.ts",
     "title-case": "tsx scripts/title-case-pass.ts",
     "reocr-suspects": "tsx scripts/reocr-suspects.ts",
-    "migrate-images": "tsx scripts/migrate-images-to-r2.ts"
+    "migrate-images": "tsx scripts/migrate-images-to-r2.ts",
+    "test:access": "tsx scripts/test-access-tiers.ts"
   },
   "engines": {
     "node": ">=18.0.0"

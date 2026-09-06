@@ -1,10 +1,10 @@
 import { SqliteAdapter } from './database-sqlite.js';
 import { createPostgresAdapter } from './database-postgres.js';
-import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow, SentimentScoreDetail, MethodRow, LexiconRow, LexiconTermRow, OcrRunRow } from './database-adapter.js';
+import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow, SentimentScoreDetail, MethodRow, LexiconRow, LexiconSummary, LexiconTermRow, OcrRunRow } from './database-adapter.js';
 import os from 'os';
 import path from 'path';
 
-export type { BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow, SentimentScoreDetail, MethodRow, LexiconRow, LexiconTermRow, OcrRunRow };
+export type { BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow, SentimentScoreDetail, MethodRow, LexiconRow, LexiconSummary, LexiconTermRow, OcrRunRow };
 
 let _adapter: DatabaseAdapter | null = null;
 
@@ -40,6 +40,7 @@ export async function createBatchJob(batchId: string, bookIds: number[], kind?: 
 export async function getBatchJob(batchId: string) { return (await getAdapter()).getBatchJob(batchId); }
 export async function updateBatchJobStatus(batchId: string, status: string) { return (await getAdapter()).updateBatchJobStatus(batchId, status); }
 export async function getInProgressBatchJobs() { return (await getAdapter()).getInProgressBatchJobs(); }
+export async function getRecentBatchJobs(kind: string, limit: number) { return (await getAdapter()).getRecentBatchJobs(kind, limit); }
 export async function createDimension(name: string, description: string, minLabel: string, maxLabel: string) { return (await getAdapter()).createDimension(name, description, minLabel, maxLabel); }
 export async function getDimensionByName(name: string) { return (await getAdapter()).getDimensionByName(name); }
 export async function getAllDimensions() { return (await getAdapter()).getAllDimensions(); }
@@ -56,6 +57,8 @@ export async function deleteMethod(id: number) { return (await getAdapter()).del
 export async function createLexicon(name: string, scaleMin: number, scaleMax: number, note: string | null) { return (await getAdapter()).createLexicon(name, scaleMin, scaleMax, note); }
 export async function getLexiconByName(name: string) { return (await getAdapter()).getLexiconByName(name); }
 export async function insertLexiconTerms(terms: Array<{ lexiconId: number; dimensionId: number; term: string; value: number }>) { return (await getAdapter()).insertLexiconTerms(terms); }
+export async function getAllLexicons() { return (await getAdapter()).getAllLexicons(); }
+export async function deleteLexicon(id: number) { return (await getAdapter()).deleteLexicon(id); }
 export async function getLexiconTerms(lexiconId: number, dimensionId: number) { return (await getAdapter()).getLexiconTerms(lexiconId, dimensionId); }
 export async function getPageImage(bookId: number, pageNumber: number) { return (await getAdapter()).getPageImage(bookId, pageNumber); }
 export async function setPageImage(bookId: number, pageNumber: number, imageData: string) { return (await getAdapter()).setPageImage(bookId, pageNumber, imageData); }

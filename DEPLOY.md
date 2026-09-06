@@ -5,11 +5,44 @@ built React app, gated behind **Sign in with Google** with a hard email allowlis
 All data stays in Neon (Postgres), so the host holds no state — migrating to
 another host later is mostly re-entering env vars.
 
+## Who can do what
+
+The app has **two tiers**, enforced server-side on every `/api` route (not just
+in the UI):
+
+| | Anonymous | Guest (any Google account) | Member (`ALLOWED_EMAILS`) |
+| --- | --- | --- | --- |
+| Reach any `/api` route | ✗ `401` | ✓ | ✓ |
+| Browse the library, read transcriptions and page scans | ✗ | ✓ | ✓ |
+| Compare pre-computed sentiment scores and download them | ✗ | ✓ | ✓ |
+| Edit pages, tags, splits, book titles | ✗ | ✗ `403` | ✓ |
+| Anything that calls Claude (OCR, quality checks, LLM scoring) | ✗ | ✗ `403` | ✓ |
+| Run or batch any scoring, load lexicons, define dimensions | ✗ | ✗ `403` | ✓ |
+| Connect Google Drive | ✗ | ✗ `403` | ✓ |
+
+**This means your deployment is publicly readable once it ships.** Anyone who can
+sign in with Google sees the whole corpus. Nothing they can do spends Anthropic
+credits or changes stored data — every endpoint that does either is member-only —
+but the content itself is exposed by design.
+
+Roles are derived from `ALLOWED_EMAILS` on **every request**, never stored in the
+session cookie. Cookies last seven days, so a cached role would keep a removed
+account privileged for up to a week; deriving it means adding or removing an
+address takes effect on the very next request, with no redeploy and no re-login.
+
 ## What protects your API credits
 
-The login gate runs **server-side on every `/api` route** (not just the UI). With
-no valid session you get a `401` — so nobody who isn't on `ALLOWED_EMAILS` can
-reach any endpoint that spends Anthropic credits. Verify locally any time with:
+No endpoint that reaches Anthropic is available below the member tier, and there
+is no path from a guest session to one. Verify both boundaries locally any time:
+
+```bash
+npm run test:access
+```
+
+That boots the server and hits every route as anonymous, guest and member,
+checking each lands in the right tier — and that promoting/demoting an address
+takes effect on the same session token. Add a case there whenever you add a
+route. The older gate check covers just the anonymous boundary:
 
 ```bash
 npx tsx scripts/test-auth-gate.ts
@@ -45,7 +78,7 @@ Commit and push to GitHub (Render deploys from the repo).
 | `GOOGLE_CLIENT_SECRET` | existing OAuth client secret |
 | `GOOGLE_DRIVE_FOLDER_ID` | your Drive folder id |
 | `SESSION_SECRET` | the `openssl rand -hex 32` value |
-| `ALLOWED_EMAILS` | *(optional)* overrides the baked-in default (`mitchellornesmith@gmail.com,jamesahs@umich.edu`) |
+| `ALLOWED_EMAILS` | *(optional)* who gets **full** access; everyone else who signs in is a read-only guest. Overrides the baked-in default (`mitchellornesmith@gmail.com,jamesahs@umich.edu`) |
 | `BASE_URL` | the `https://ocr-xxxx.onrender.com` URL (no trailing slash) |
 | `GOOGLE_DRIVE_TOKEN` | *(optional)* contents of `credentials/oauth-token.json`, one line |
 
@@ -64,8 +97,9 @@ In Google Cloud Console → **APIs & Services → Credentials → your OAuth cli
 
 ### 5. Deploy & sign in
 - Trigger a deploy (Render does this on push, or use **Manual Deploy**).
-- Open the URL → **Sign in with Google** → pick an allowed account → you're in.
-- An account not on `ALLOWED_EMAILS` gets a clear "not on the allowlist" page.
+- Open the URL → **Sign in with Google** → pick an account → you're in.
+- An account on `ALLOWED_EMAILS` gets the full app. Any other account gets the
+  read-only guest view, marked with a "Guest" badge in the header.
 
 ## Cold start (free tier)
 The service sleeps after ~15 min idle and takes ~a minute to wake. The app shows a

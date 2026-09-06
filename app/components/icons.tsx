@@ -186,3 +186,11 @@ export const Google = ({ className }: IconProps) => (
     />
   </svg>
 );
+
+/** Dial with a needle — sentiment analysis / measurement. */
+export const Gauge = (p: IconProps) => (
+  <S {...p}>
+    <path d="M12 15a2 2 0 0 0 1.7-3l3.3-4.2" />
+    <path d="M3.5 17a9 9 0 1 1 17 0" />
+  </S>
+);

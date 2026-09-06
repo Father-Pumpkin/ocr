@@ -4,6 +4,7 @@ import { api, ApiError } from '../lib/api';
 import type { BookRow, PageRow, OcrRun } from '../types';
 import { parseTags } from '../types';
 import { Loading, ErrorBox, EmptyState, Button, IconButton, Label, Badge } from '../components/ui';
+import { useIsMember } from '../lib/session';
 import {
   ChevronLeft,
   ChevronRight,
@@ -34,6 +35,10 @@ function readAsDataURL(file: File): Promise<string> {
 }
 
 export function PageEditor() {
+  // Every mutation on this page is member-only. Guests read the page, its
+  // image, its tags and its OCR history; the controls that would change any
+  // of it aren't rendered, and the server refuses them regardless.
+  const isMember = useIsMember();
   const { name = '', n = '1' } = useParams();
   const pageNumber = Number.parseInt(n, 10);
   const navigate = useNavigate();
@@ -408,19 +413,21 @@ export function PageEditor() {
               </a>
             )}
           </div>
-          <div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => onPickImage(e.target.files?.[0])}
-            />
-            <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()} disabled={busy}>
-              <Upload className="h-4 w-4" />
-              {uploading ? 'Uploading…' : imgError ? 'Upload image' : 'Replace image'}
-            </Button>
-          </div>
+          {isMember && (
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => onPickImage(e.target.files?.[0])}
+              />
+              <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()} disabled={busy}>
+                <Upload className="h-4 w-4" />
+                {uploading ? 'Uploading…' : imgError ? 'Upload image' : 'Replace image'}
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Editor */}
@@ -449,8 +456,12 @@ export function PageEditor() {
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
+            readOnly={!isMember}
             spellCheck={false}
-            className="min-h-64 flex-1 resize-y rounded-lg border border-border bg-surface p-3.5 font-mono text-sm leading-relaxed text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+            title={isMember ? undefined : 'Read-only: editing is limited to approved accounts.'}
+            className={`min-h-64 flex-1 resize-y rounded-lg border border-border p-3.5 font-mono text-sm leading-relaxed text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 ${
+              isMember ? 'bg-surface' : 'bg-surface-2 cursor-default'
+            }`}
           />
 
           {/* Re-OCR preview — compare the fresh OCR with the working text before applying */}
@@ -527,16 +538,35 @@ export function PageEditor() {
 
           <div>
             <Label>
-              Tags <span className="font-normal normal-case text-faint">(pick or create)</span>
+              Tags{' '}
+              {isMember && <span className="font-normal normal-case text-faint">(pick or create)</span>}
             </Label>
             <div className="mt-1.5">
-              <TagSelect key={pageNumber} value={tags} onChange={setTags} suggestions={allTags} />
+              {isMember ? (
+                <TagSelect key={pageNumber} value={tags} onChange={setTags} suggestions={allTags} />
+              ) : tags.length ? (
+                <span className="flex flex-wrap gap-1.5">
+                  {tags.map((t) => (
+                    <Badge key={t} tone="neutral">{t}</Badge>
+                  ))}
+                </span>
+              ) : (
+                <span className="text-sm text-faint">None</span>
+              )}
             </div>
           </div>
 
           {actionError && <ErrorBox message={actionError} />}
 
-          {/* Primary actions */}
+          {!isMember && (
+            <p className="text-xs text-muted">
+              Read-only. Editing pages, re-running OCR and quality checks are limited to approved accounts.
+            </p>
+          )}
+
+          {/* Primary actions — every one of these writes or spends. */}
+          {isMember && (
+            <>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <Button variant="primary" onClick={onSave} disabled={!dirty || busy}>
               {saving ? 'Saving…' : 'Save'}
@@ -628,6 +658,8 @@ export function PageEditor() {
               {deleting ? 'Deleting…' : 'Delete page'}
             </Button>
           </div>
+            </>
+          )}
         </div>
       </div>
 

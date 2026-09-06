@@ -47,10 +47,13 @@ OCR pipeline for Spanish children's books. The same `src/core/` business logic b
   - `sentiment.ts` — method-aware hybrid scoring orchestration; lexicon methods run locally, LLM methods inline / Batch API; populates `page_sentiment`
   - `sentiment-analysis.ts` — `analyzeSentiment`: aggregates scores into chartable per-page series / grouped means (by page, book, tag, book×tag, or method)
   - `sentiment-chart.ts` — optional server-rendered PNG of a chart (reuses `@napi-rs/canvas`)
+  - `analysis-service.ts` — the web app's sentiment facade: the **style** vocabulary (bag-of-words vs LLM, merging the lexicon catalogue with what's been loaded), style→method materialization, an in-memory **run registry** the client polls, **batch** submission + tracking, per-run **ceilings**, and **prewarming** (run every loaded dictionary over the whole library)
+  - `lexicon-catalogue.ts` — the five expected Spanish dictionaries (AFINN, SO-CAL/SFU, JAEN/iSOL, Linguakit, SBU) with source, licence and exact published layout, plus `seedLexiconsFromDisk()` which imports anything dropped in `lexicons/` on startup. No dictionary data is bundled — only knowledge about them. Three presets are `formatVerified` (checked against the real file); see `lexicons/README.md` for the download commands and the traps
+  - `analysis-export.ts` — the download: `pages.csv` (long format, one row per page×dimension×method), `summary.csv` (one row per group), or `analysis.json`
   - `google-drive.ts` — OAuth2 for Drive access *and* "Sign in with Google" login
-- **`src/http/`** — Express backend: `server.ts` (app factory), `start.ts` (Node entry), `session.ts` (cookie sessions + email allowlist), `middleware/require-auth.ts`, `routes/` (`auth`, `login`, `books`, `library`)
+- **`src/http/`** — Express backend: `server.ts` (app factory), `start.ts` (Node entry), `session.ts` (cookie sessions + `roleForEmail`), `middleware/require-auth.ts` (`requireAuth` / `requireMember`), `routes/` (`auth`, `login`, `books`, `library`, `analysis`)
 - **`src/tools/`** — one file per transcription/read MCP tool (`list_books`, `transcribe_books`, `batch_transcribe`, `get_transcription`); the dimension and sentiment tools are defined inline in `index.ts`
-- **`app/`** — React + Vite + Tailwind v4 SPA (React Router): `pages/` (Library, BookDetail, PageEditor), `components/` (TagSelect, SplitDialog, AuthGate, DriveStatus, ui, icons), `lib/` (api, theme). Built to `app/dist/` (gitignored).
+- **`app/`** — React + Vite + Tailwind v4 SPA (React Router): `pages/` (Library, BookDetail, PageEditor, Analysis), `components/` (TagSelect, SplitDialog, LexiconUpload, AuthGate, DriveStatus, ui, icons), `lib/` (api, theme, `session` — the role context). Built to `app/dist/` (gitignored).
 
 ### Database tables
 
@@ -72,6 +75,137 @@ A **dimension** is the construct measured (e.g. "fear"); a **method** is the ins
 2. *(Optional)* Add scoring methods — *how* to score. `create_method` saves a custom LLM rubric/model; `import_lexicon` + `create_method` (kind `lexicon`) registers **any** word→value dictionary (mapping-driven: term column, value column→dimension, native scale → normalized 0–1) to run locally. The built-in `claude-default` LLM method is used otherwise; `list_methods` lists them.
 3. `score_pages { method }` scores text pages and caches them in `page_sentiment`. **Lexicon** methods run locally and instantly; **LLM** methods run inline (small scopes) or submit a Batch API job (`kind='sentiment'`, resolved by `check_batch`). Illustration/empty pages skipped; already-scored (page, dimension, method) skipped unless `overwrite`.
 4. `chart_sentiment` returns aggregated data for any slice — a per-page **series** (narrative arc) or grouped **means** (bars) — sliced by `books` / `tags` / `dimensions` / `methods` / page range and bucketed via `group_by` (`page` | `book` | `tag` | `book_tag` | `method`). Scores are partitioned by method so instruments overlay. Claude renders the returned `structuredContent` as a chart artifact; `render_png: true` also returns a server-rendered PNG. The `coverage` field reports how many in-scope pages are scored. `list_tags` surfaces groupable tag values.
+
+### Sentiment analysis in the web app (`/analysis`)
+
+The same engine, driven by a three-step form instead of MCP tools. The screen's
+vocabulary is **style** (how to measure) × **dimension** (what to measure) ×
+**scope** (what to run it on), then a download.
+
+Two style families:
+
+- **Bag of words** — a dictionary, matched word by word and averaged. Local,
+  instant, free, reproducible. The picker lists the lexicons this project expects
+  (AFINN, SO-CAL/SFU, JAEN/iSOL, Linguakit, Stony Brook) whether or not they've been
+  loaded, so it doubles as a checklist. **No dictionary data is bundled** — each
+  carries its own licence. Two ways to load one:
+  - **Drop it in `lexicons/`** (see that folder's README, which has copy-paste
+    download commands for the three that are freely available). The backend imports
+    on startup, idempotently: a *folder* = one lexicon combining its files, which is
+    how SO-CAL's four parts of speech or iSOL's two polarity lists become a single
+    instrument — and the folder name is what matches the preset, since published
+    filenames rarely name the dictionary. A `<file>.mapping.json` sidecar overrides
+    anything inferred. `POST /api/analysis/lexicons/seed` re-scans.
+  - **Upload a dictionary** in the UI — reads the file in the browser, POSTs it to
+    `/api/analysis/lexicons/preview` to discover its shape, and pre-fills the
+    mapping from the matched catalogue preset.
+  Either way, importing registers the `lex-<name>` method, so the style is
+  immediately runnable. Everything defaults into a shared **`polarity`** dimension,
+  which is what makes "AFINN vs SO-CAL vs Claude" a single comparable chart.
+  **Pre-compute the whole library** runs every loaded dictionary over every book —
+  local and free, so there's no reason not to have the results waiting.
+- **LLM** — Claude scores each page against the dimension's description, or a custom
+  rubric saved as a named, reusable method.
+
+Scope is books (empty = all transcribed) × page range × tags. `scorePages` gained
+`tags`, `onProgress` and two mode-aware ceilings for this.
+
+**Standard vs batch.** `/api/analysis/estimate` sizes a run before it starts and
+recommends a mode: at or below `BATCH_RECOMMEND_THRESHOLD` (100 page–dimension
+pairs) a **standard** run, above it a **batch**. The recommendation is only that —
+the UI offers both and the override sticks. Lexicon methods are always standard;
+the Batch API has nothing to offer something that runs locally in milliseconds.
+
+- **Standard** scores inline and is **polled** (`POST /api/analysis/runs`, then
+  `GET /api/analysis/runs/:id`) — a held-open request would time out behind a proxy.
+  The registry is in memory (progress only); scores land in `page_sentiment`, so a
+  lost run costs nothing but the progress bar. Capped by `MAX_LLM_CALLS_PER_RUN`
+  (default 500) because someone is waiting on it.
+- **Batch** submits to the Anthropic Batch API — about half the price, about an
+  hour — and is tracked in `batch_jobs` (`kind='sentiment'`), so it survives closing
+  the tab or restarting the server. `GET /api/analysis/batches` lists them and the
+  HTTP server polls in-flight batches every 5 minutes, so results land without
+  anyone pressing anything; `POST /api/analysis/batches/:id/check` forces it. Capped
+  by `MAX_BATCH_ITEMS_PER_RUN` (default 20,000) because nobody is waiting.
+
+Over-cap runs are refused with the numbers rather than half-spent, and a standard
+run over its cap is told batch is the way out.
+
+Already-scored (page, dimension, method) triples are skipped unless "re-score" is
+ticked, which is what makes repeat runs cheap and the results panel re-readable
+without re-scoring. A lexicon page with no dictionary hits stores no score — it has
+no reading, and inventing a neutral 0.5 would be worse — so prewarming re-attempts
+those pages each time. That's free.
+
+### Lexicon file formats
+
+`lexicon-import.ts` detects rather than assumes, because the real dictionaries
+disagree with each other on every axis. All of this was found by reading the
+published files, and each case is a silent-failure mode if guessed wrong:
+
+- **Delimiter** — tried in order (tab, comma, semicolon, pipe, whitespace) and
+  chosen by which splits ≥90% of sampled rows into the same ≥2 columns. AFINN-es
+  is comma, Linguakit tab, SO-CAL's `google_translated` build *space* — all under
+  `.txt`/`.csv`/`.tsv` names, so the extension settles nothing. A single-space
+  delimiter splits on any whitespace run, since those files carry trailing spaces.
+- **Header row** — detected, not assumed: a first row whose value cell is numeric
+  (SO-CAL) or repeats a label seen further down (Linguakit) is data. Headerless
+  files get synthetic `term` / `value` columns. Guessing wrong eats a term *and*
+  names every column after it.
+- **Labelled values** — Linguakit's values are the words `POSITIVE`/`NEGATIVE`.
+  Without a `labelValues` map every row parses as NaN and the import silently
+  yields nothing, so `previewLexicon` reports `labelColumns` and the UI demands a
+  mapping before it will submit.
+- **Word lists** — no value column at all (iSOL, SBU); polarity comes from the
+  filename and both halves import under one lexicon name via `appendToExisting`.
+- **Native scale** — inferred from a scan of the *whole* file, not the preview
+  rows. Everything normalizes against it, so reading −2..1 off the first few rows
+  of a −5..5 dictionary would skew every score in the corpus, silently.
+- **Character encoding** — UTF-8 is tried strictly and falls back to Latin-1.
+  iSOL is ISO-8859-1, and decoding it as UTF-8 turns every accented term into
+  U+FFFD. Both the seeder and the browser upload do this (`decodeLexiconBytes`
+  and `readAsText`); `File.text()` and `readFileSync(..., 'utf8')` are the traps.
+- **BOM / CRLF** — stripped.
+
+Presets are hints, not assertions: `planImport` checks that a preset's columns are
+actually present and falls back to detection when they aren't, keeping only what
+the preset knows about the *dictionary* (native scale, label meanings) rather than
+about the file. The same lexicon does circulate in different layouts — AFINN as
+comma-with-header from one mirror, tab-and-headerless from another.
+
+`uploadLexicon` deletes the lexicon row it created if parsing then fails, so a bad
+import can't strand an empty lexicon that shows up as a broken style.
+
+### Access tiers
+
+Two tiers, enforced server-side per route and mirrored in the UI:
+
+- **guest** — any verified Google account. Reads everything: library,
+  transcriptions, page scans, OCR history, and the pre-computed sentiment scores
+  including exports. Writes nothing, spends nothing.
+- **member** — an address in `ALLOWED_EMAILS`. Everything else: page edits,
+  scoring runs, dimensions, lexicons, Drive.
+
+Points worth not re-deriving:
+
+- **The role is never in the session token.** `roleForEmail()` resolves it from
+  the allowlist on each request. Cookies last 7 days, so a cached role would keep
+  a removed account privileged for a week. Verified by an access test that
+  promotes and demotes the *same* token.
+- **`login.ts` no longer rejects anyone.** Any verified email gets a session; the
+  allowlist decides capability, not entry. Access control lives in
+  `middleware/require-auth`, per route.
+- **Mount middleware inside the router, not at the mount point.**
+  `app.use('/api', requireMember, authRouter)` applies `requireMember` to *every*
+  `/api` request, because Express treats the path as a prefix for the whole
+  chain — that locked guests out of the public reads. The Drive routes gate
+  themselves individually instead.
+- **Guests never trigger a render.** `GET /pages/:n/image` routes them through
+  `getCachedPageImage`, which returns null on a miss rather than downloading the
+  PDF from Drive and rasterizing every page.
+- The UI (`app/lib/session.tsx`, `useIsMember()`) only *hides* controls. It is a
+  courtesy, never the boundary; components still handle a 403, since a role can
+  change between page load and click.
 
 ### OCR conventions
 

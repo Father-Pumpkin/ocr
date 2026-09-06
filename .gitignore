@@ -6,3 +6,8 @@ credentials/
 *.db
 .claude/
 .suspects-batch.json
+
+# Sentiment dictionaries dropped in for seeding — each carries its own licence
+# and is not ours to redistribute. The README explains where to get them.
+lexicons/*
+!lexicons/README.md

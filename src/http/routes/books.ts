@@ -1,7 +1,9 @@
 import { Router, type Request, type Response } from 'express';
+import { requireMember, type AuthedRequest } from '../middleware/require-auth.js';
 import {
   getBookPagesData,
   getPageImageData,
+  getCachedPageImage,
   setPageImageData,
   updatePageText,
   setPageTagsData,
@@ -20,6 +22,13 @@ import {
 } from '../../core/book-service.js';
 
 export const booksRouter = Router();
+
+/**
+ * Reads are open to any signed-in account; everything that edits a book, or
+ * reaches Claude, is member-only. `requireMember` is applied per route rather
+ * than by HTTP verb, because some POSTs are reads with side effects worth
+ * paying for (verify, retranscribe) and belong on the restricted side.
+ */
 
 /** Maps thrown errors to HTTP responses consistently across routes. */
 function handleError(err: unknown, res: Response): void {
@@ -60,7 +69,13 @@ booksRouter.get('/books/:name/pages', async (req, res) => {
 // GET /api/books/:name/pages/:n/image — raw JPEG bytes (404 if no scan)
 booksRouter.get('/books/:name/pages/:n/image', async (req, res) => {
   try {
-    const { imageData } = await getPageImageData(bookName(req), pageNum(req));
+    // A cache miss makes getPageImageData download the PDF from Drive and
+    // rasterize every page. Members may trigger that; for guests it would be an
+    // open invitation to burn CPU and Drive quota, so they get cached images only.
+    const isGuest = (req as AuthedRequest).user?.role === 'guest';
+    const { imageData } = isGuest
+      ? { imageData: await getCachedPageImage(bookName(req), pageNum(req)) }
+      : await getPageImageData(bookName(req), pageNum(req));
     if (!imageData) {
       res.status(404).json({ error: 'No image for this page.' });
       return;
@@ -76,7 +91,7 @@ booksRouter.get('/books/:name/pages/:n/image', async (req, res) => {
 });
 
 // PUT /api/books/:name/pages/:n/image — replace the page's cached image (base64)
-booksRouter.put('/books/:name/pages/:n/image', async (req, res) => {
+booksRouter.put('/books/:name/pages/:n/image', requireMember, async (req, res) => {
   try {
     const imageBase64 = req.body?.imageBase64 ?? req.body?.image_base64;
     if (typeof imageBase64 !== 'string' || !imageBase64.trim()) {
@@ -91,7 +106,7 @@ booksRouter.put('/books/:name/pages/:n/image', async (req, res) => {
 });
 
 // PATCH /api/books/:name/pages/:n — update transcription and/or tags
-booksRouter.patch('/books/:name/pages/:n', async (req, res) => {
+booksRouter.patch('/books/:name/pages/:n', requireMember, async (req, res) => {
   try {
     const { transcription, tags } = req.body ?? {};
     if (transcription === undefined && tags === undefined) {
@@ -117,7 +132,7 @@ booksRouter.patch('/books/:name/pages/:n', async (req, res) => {
 
 // POST /api/books/:name/pages/:n/retranscribe — re-run OCR on one page.
 // Records a new OCR run and returns it for preview; does not change the page text.
-booksRouter.post('/books/:name/pages/:n/retranscribe', async (req, res) => {
+booksRouter.post('/books/:name/pages/:n/retranscribe', requireMember, async (req, res) => {
   try {
     const model = req.body?.model as string | undefined;
     const { run, page } = await retranscribePageData(bookName(req), pageNum(req), model);
@@ -138,7 +153,7 @@ booksRouter.get('/books/:name/pages/:n/ocr-runs', async (req, res) => {
 });
 
 // POST /api/books/:name/pages/:n/verify — quality-check one page
-booksRouter.post('/books/:name/pages/:n/verify', async (req, res) => {
+booksRouter.post('/books/:name/pages/:n/verify', requireMember, async (req, res) => {
   try {
     const page = await verifyPageData(bookName(req), pageNum(req));
     res.json({ page });
@@ -148,7 +163,7 @@ booksRouter.post('/books/:name/pages/:n/verify', async (req, res) => {
 });
 
 // POST /api/books/:name/verify — quality-check every page of a book
-booksRouter.post('/books/:name/verify', async (req, res) => {
+booksRouter.post('/books/:name/verify', requireMember, async (req, res) => {
   try {
     const result = await verifyBookData(bookName(req));
     res.json(result);
@@ -158,7 +173,7 @@ booksRouter.post('/books/:name/verify', async (req, res) => {
 });
 
 // POST /api/books/:name/pages — insert a blank page after { afterPageNumber }
-booksRouter.post('/books/:name/pages', async (req, res) => {
+booksRouter.post('/books/:name/pages', requireMember, async (req, res) => {
   try {
     const after = Number.parseInt(String(req.body?.afterPageNumber ?? ''), 10);
     if (Number.isNaN(after)) {
@@ -173,7 +188,7 @@ booksRouter.post('/books/:name/pages', async (req, res) => {
 });
 
 // DELETE /api/books/:name/pages/:n — delete a page and renumber
-booksRouter.delete('/books/:name/pages/:n', async (req, res) => {
+booksRouter.delete('/books/:name/pages/:n', requireMember, async (req, res) => {
   try {
     await deletePageData(bookName(req), pageNum(req));
     res.json({ ok: true });
@@ -183,7 +198,7 @@ booksRouter.delete('/books/:name/pages/:n', async (req, res) => {
 });
 
 // POST /api/books/:name/pages/:n/mark-ok — manually accept a page's OCR
-booksRouter.post('/books/:name/pages/:n/mark-ok', async (req, res) => {
+booksRouter.post('/books/:name/pages/:n/mark-ok', requireMember, async (req, res) => {
   try {
     const page = await markPageOkData(bookName(req), pageNum(req));
     res.json({ page });
@@ -193,7 +208,7 @@ booksRouter.post('/books/:name/pages/:n/mark-ok', async (req, res) => {
 });
 
 // POST /api/books/:name/pages/:n/split — split a spread into two pages
-booksRouter.post('/books/:name/pages/:n/split', async (req, res) => {
+booksRouter.post('/books/:name/pages/:n/split', requireMember, async (req, res) => {
   try {
     const { leftText, rightText, ratio } = req.body ?? {};
     const r = typeof ratio === 'number' && Number.isFinite(ratio) ? ratio : 0.5;
@@ -211,7 +226,7 @@ booksRouter.post('/books/:name/pages/:n/split', async (req, res) => {
 });
 
 // PATCH /api/books/:name — rename a book (its display title)
-booksRouter.patch('/books/:name', async (req, res) => {
+booksRouter.patch('/books/:name', requireMember, async (req, res) => {
   try {
     const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
     if (!title) {
@@ -226,7 +241,7 @@ booksRouter.patch('/books/:name', async (req, res) => {
 });
 
 // POST /api/books/:name/pages/:n/illustration — toggle the illustration-only flag
-booksRouter.post('/books/:name/pages/:n/illustration', async (req, res) => {
+booksRouter.post('/books/:name/pages/:n/illustration', requireMember, async (req, res) => {
   try {
     const isIllustration = Boolean(req.body?.isIllustration);
     const page = await setPageIllustrationData(bookName(req), pageNum(req), isIllustration);

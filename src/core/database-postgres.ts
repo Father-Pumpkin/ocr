@@ -1,5 +1,5 @@
 import postgres from 'postgres';
-import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow, SentimentScoreDetail, MethodRow, LexiconRow, LexiconTermRow, OcrRunRow } from './database-adapter.js';
+import type { DatabaseAdapter, BookRow, PageRow, BatchJobRow, DimensionRow, PageSentimentRow, SentimentScoreDetail, MethodRow, LexiconRow, LexiconSummary, LexiconTermRow, OcrRunRow } from './database-adapter.js';
 
 // Raw Postgres row types (dates come back as Date objects from the driver)
 interface PgBookRow {
@@ -545,6 +545,14 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   // ---- Dimension helpers ----
 
+  async getRecentBatchJobs(kind: string, limit: number): Promise<BatchJobRow[]> {
+    const rows = await this.sql<PgBatchJobRow[]>`
+      SELECT * FROM batch_jobs WHERE kind = ${kind}
+      ORDER BY created_at DESC, id DESC LIMIT ${limit}
+    `;
+    return rows.map(coerceBatchJob);
+  }
+
   async createDimension(name: string, description: string, minLabel: string, maxLabel: string): Promise<DimensionRow> {
     const createdBy = process.env.APP_USER_ID ?? null;
     const rows = await this.sql<PgDimensionRow[]>`
@@ -637,6 +645,34 @@ export class PostgresAdapter implements DatabaseAdapter {
   async getLexiconByName(name: string): Promise<LexiconRow | undefined> {
     const rows = await this.sql<PgLexiconRow[]>`SELECT * FROM lexicons WHERE name = ${name}`;
     return rows.length > 0 ? coerceLexicon(rows[0]) : undefined;
+  }
+
+  async getAllLexicons(): Promise<LexiconSummary[]> {
+    const rows = await this.sql<Array<PgLexiconRow & { term_count: string | number; dimension_names: string[] | null }>>`
+      SELECT l.*,
+             (SELECT COUNT(*) FROM lexicon_terms t WHERE t.lexicon_id = l.id) AS term_count,
+             (SELECT ARRAY_AGG(DISTINCT d.name)
+                FROM lexicon_terms t JOIN dimensions d ON d.id = t.dimension_id
+               WHERE t.lexicon_id = l.id) AS dimension_names
+        FROM lexicons l
+       ORDER BY l.name
+    `;
+    return rows.map((r) => ({
+      ...coerceLexicon(r),
+      term_count: Number(r.term_count),
+      dimensions: (r.dimension_names ?? []).slice().sort(),
+    }));
+  }
+
+  async deleteLexicon(id: number): Promise<boolean> {
+    // Methods bound to this lexicon would be left dangling — drop them (and, by
+    // cascade, the scores they produced) alongside the lexicon's terms.
+    await this.sql`
+      DELETE FROM methods
+       WHERE kind = 'lexicon' AND (config::jsonb ->> 'lexicon_id')::int = ${id}
+    `;
+    const result = await this.sql`DELETE FROM lexicons WHERE id = ${id}`;
+    return result.count > 0;
   }
 
   async insertLexiconTerms(terms: Array<{ lexiconId: number; dimensionId: number; term: string; value: number }>): Promise<number> {
