@@ -25,6 +25,7 @@ import {
 } from '../../core/analysis-service.js';
 import type { AnalyzeInput, GroupBy, Aggregate } from '../../core/sentiment-analysis.js';
 import { requireMember } from '../middleware/require-auth.js';
+import { LIMITS } from '../middleware/rate-limit.js';
 
 /**
  * Sentiment analysis API for the web app: pick a style, pick a scope, run it,
@@ -119,7 +120,7 @@ analysisRouter.get('/analysis/options', async (_req, res) => {
 });
 
 // POST /api/analysis/estimate — size a run (pages, calls, cap) before committing
-analysisRouter.post('/analysis/estimate', requireMember, async (req, res) => {
+analysisRouter.post('/analysis/estimate', requireMember, LIMITS.SCORING, async (req, res) => {
   try {
     res.json(await estimateRun(runRequestFromBody(req.body)));
   } catch (err) {
@@ -128,7 +129,7 @@ analysisRouter.post('/analysis/estimate', requireMember, async (req, res) => {
 });
 
 // POST /api/analysis/runs — start scoring; returns immediately, poll for progress
-analysisRouter.post('/analysis/runs', requireMember, async (req, res) => {
+analysisRouter.post('/analysis/runs', requireMember, LIMITS.SCORING, async (req, res) => {
   try {
     res.status(202).json({ run: await startRun(runRequestFromBody(req.body)) });
   } catch (err) {
@@ -161,7 +162,7 @@ analysisRouter.get('/analysis/results', async (req, res) => {
 });
 
 // GET /api/analysis/export?format=pages.csv — download the analysis
-analysisRouter.get('/analysis/export', async (req, res) => {
+analysisRouter.get('/analysis/export', LIMITS.EXPORTS, async (req, res) => {
   try {
     const format = (str(req.query.format) || 'pages.csv') as ExportFormat;
     const file = await exportResults(analyzeInputFromQuery(req), format);
@@ -199,7 +200,7 @@ analysisRouter.post('/analysis/batches/:id/check', requireMember, async (req, re
 
 // POST /api/analysis/prewarm — score the whole library with every loaded
 // dictionary. Local and free; returns a run to poll like any other.
-analysisRouter.post('/analysis/prewarm', requireMember, async (req, res) => {
+analysisRouter.post('/analysis/prewarm', requireMember, LIMITS.SCORING, async (req, res) => {
   try {
     const overwrite = Boolean((req.body ?? {})?.overwrite);
     res.status(202).json({ run: await prewarmLexicons({ overwrite }) });
@@ -209,7 +210,7 @@ analysisRouter.post('/analysis/prewarm', requireMember, async (req, res) => {
 });
 
 // POST /api/analysis/lexicons/seed — re-scan the lexicons folder on disk
-analysisRouter.post('/analysis/lexicons/seed', requireMember, async (_req, res) => {
+analysisRouter.post('/analysis/lexicons/seed', requireMember, LIMITS.SCORING, async (_req, res) => {
   try {
     res.json({ outcomes: await seedLexiconsFromDisk() });
   } catch (err) {

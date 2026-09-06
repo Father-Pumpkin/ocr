@@ -207,6 +207,26 @@ Points worth not re-deriving:
   courtesy, never the boundary; components still handle a 403, since a role can
   change between page load and click.
 
+### Rate limiting
+
+`middleware/rate-limit.ts`, on by default, keyed per signed-in account (per IP
+only for the login flow, which has no session yet). `LIMITS` holds every number
+in one place so the policy reads as policy.
+
+The constraint that shapes it: **the library page requests one image per book**,
+so a normal visit is a burst of ~76 requests. Read limits are set well above
+realistic page loads — they exist to stop scraping, not to pace a browser. The
+tight limits are on exports (serializes the whole corpus) and scoring (runs over
+every page, or spends). `npm run test:limits` guards the burst case explicitly,
+because "limiter fires on an ordinary page load" is the likelier failure than
+"limiter never fires".
+
+`RATE_LIMIT_FACTOR` scales everything and `RATE_LIMIT_DISABLED=1` turns it off,
+both without a redeploy. Counters are in-memory and per-instance.
+
+`app.set('trust proxy', 1)` in production — exactly one hop, not `true`, which
+would let a client forge `X-Forwarded-For` and evade the IP-keyed login limit.
+
 ### OCR conventions
 
 - Illustration-only spreads stored as `[ILLUSTRATION]` with `has_illustration=true`

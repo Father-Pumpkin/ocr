@@ -26,11 +26,20 @@ class ApiError extends Error {
   authRequired: boolean;
   /** True when the server refused because the account isn't on the allowlist. */
   memberRequired: boolean;
-  constructor(message: string, status: number, authRequired = false, memberRequired = false) {
+  /** True when the server refused because of a rate limit; the message says when to retry. */
+  rateLimited: boolean;
+  constructor(
+    message: string,
+    status: number,
+    authRequired = false,
+    memberRequired = false,
+    rateLimited = false,
+  ) {
     super(message);
     this.status = status;
     this.authRequired = authRequired;
     this.memberRequired = memberRequired;
+    this.rateLimited = rateLimited;
   }
 }
 
@@ -99,15 +108,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         let message = `HTTP ${res.status}`;
         let authRequired = false;
         let memberRequired = false;
+        let rateLimited = false;
         try {
           const body = await res.json();
           if (body?.error) message = body.error;
           authRequired = Boolean(body?.authRequired);
           memberRequired = Boolean(body?.memberRequired);
+          rateLimited = Boolean(body?.rateLimited);
         } catch {
           /* non-JSON error body */
         }
-        throw new ApiError(message, res.status, authRequired, memberRequired);
+        // Deliberately not retried: retrying a 429 is what caused it. The
+        // server's message already says how long to wait.
+        throw new ApiError(message, res.status, authRequired, memberRequired, rateLimited);
       }
       return res.json() as Promise<T>;
     } catch (err) {

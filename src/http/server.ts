@@ -8,6 +8,7 @@ import { analysisRouter } from './routes/analysis.js';
 import { authRouter } from './routes/auth.js';
 import { loginRouter } from './routes/login.js';
 import { requireAuth, type AuthedRequest } from './middleware/require-auth.js';
+import { LIMITS } from './middleware/rate-limit.js';
 import { isProd } from './session.js';
 import { processPendingSentimentBatches, seedLexiconsFromDisk } from '../core/analysis-service.js';
 
@@ -25,14 +26,24 @@ const APP_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 export async function createHttpServer(port: number): Promise<Express> {
   const app = express();
   app.disable('x-powered-by');
+
+  // Behind Render's proxy, req.ip is the proxy unless we say how many hops to
+  // trust. The IP-keyed login limiter is meaningless without this. Trust exactly
+  // one hop rather than `true`, which would let a client forge X-Forwarded-For.
+  if (isProd()) app.set('trust proxy', 1);
+
   app.use(express.json({ limit: '50mb' }));
 
   // --- Public routes (no session required) ---
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
-  app.use('/api/auth', loginRouter); // /google/login, /google/callback, /logout
+  // Keyed by IP: there is no session yet on the way in.
+  app.use('/api/auth', LIMITS.LOGIN, loginRouter); // /google/login, /google/callback, /logout
 
   // --- Gate: everything below requires a valid session (guest or member) ---
   app.use('/api', requireAuth);
+  // After requireAuth, so the limiter can key on the session rather than an IP
+  // shared by a whole institution. Individual routes add tighter limits on top.
+  app.use('/api', LIMITS.READS);
   app.get('/api/me', (req, res) => {
     const user = (req as AuthedRequest).user;
     res.json({ email: user?.email ?? null, role: user?.role ?? 'guest' });

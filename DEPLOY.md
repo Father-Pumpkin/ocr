@@ -30,6 +30,47 @@ session cookie. Cookies last seven days, so a cached role would keep a removed
 account privileged for up to a week; deriving it means adding or removing an
 address takes effect on the very next request, with no redeploy and no re-login.
 
+## Rate limiting
+
+On by default, and sized for a public deployment. Limits are counted per
+signed-in account — a session email is stable and unspoofable, where an IP is
+shared by a whole institution — except the login flow, which has no session yet
+and is keyed by IP.
+
+| Endpoint class | Guest | Member |
+| --- | --- | --- |
+| Reads (`/api/*`) | 300/min | 600/min |
+| Page images | 300/min | 600/min |
+| Exports (full-corpus CSV/JSON) | 10/min | 30/min |
+| Scoring runs, prewarm, estimate, seed | 5/min | 20/min |
+| Login flow (per IP) | 30 per 15 min | 30 per 15 min |
+
+Reads are deliberately loose: the library page requests one image per book, so
+an ordinary visit is a burst of ~76 requests. The limits exist to stop scraping
+and repeated full-corpus exports, not to pace a browser. A throttled request
+gets `429` with `Retry-After` and a `{ rateLimited: true, retryAfterSeconds }`
+body.
+
+Two dials, both live without a redeploy:
+
+- `RATE_LIMIT_FACTOR` — scales every limit (`0.5` halves, `2` doubles).
+- `RATE_LIMIT_DISABLED=1` — turns limiting off. Local load testing only.
+
+Counters are in memory, so they reset on deploy and are per-instance: on a
+multi-instance host the effective limit multiplies by the instance count. Fine
+for one small service; revisit if this scales out.
+
+```bash
+npm run test:limits
+```
+
+checks that a library-sized burst is *not* throttled, that exports and scoring
+are, that one account can't spend another's budget, and that both dials work.
+
+`trust proxy` is set to one hop in production so `req.ip` is the caller rather
+than Render's proxy — without it the login limiter would lump every visitor
+together.
+
 ## What protects your API credits
 
 No endpoint that reaches Anthropic is available below the member tier, and there

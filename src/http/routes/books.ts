@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { requireMember, type AuthedRequest } from '../middleware/require-auth.js';
+import { LIMITS } from '../middleware/rate-limit.js';
 import {
   getBookPagesData,
   getPageImageData,
@@ -67,7 +68,7 @@ booksRouter.get('/books/:name/pages', async (req, res) => {
 });
 
 // GET /api/books/:name/pages/:n/image — raw JPEG bytes (404 if no scan)
-booksRouter.get('/books/:name/pages/:n/image', async (req, res) => {
+booksRouter.get('/books/:name/pages/:n/image', LIMITS.IMAGES, async (req, res) => {
   try {
     // A cache miss makes getPageImageData download the PDF from Drive and
     // rasterize every page. Members may trigger that; for guests it would be an
