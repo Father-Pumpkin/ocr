@@ -30,6 +30,40 @@ session cookie. Cookies last seven days, so a cached role would keep a removed
 account privileged for up to a week; deriving it means adding or removing an
 address takes effect on the very next request, with no redeploy and no re-login.
 
+## Getting the lexicons into production
+
+**The dictionaries do not travel with the deploy.** `lexicons/` is gitignored
+(the files carry their own licences), so they aren't in the repo Render clones;
+and the runtime image copies only `dist`, `app/dist`, `node_modules` and
+`package.json`, so they wouldn't reach the container even if they were. On a
+deployed instance `seedLexiconsFromDisk()` finds an empty directory and does
+nothing — harmlessly, but it means **no bag-of-words instruments exist until the
+database has them**.
+
+That's fine, because the import lands in the *database*, not the filesystem:
+`lexicons` and `lexicon_terms` are Postgres tables. The files are only a source.
+So seed production once, from your machine, pointed at the production database:
+
+```bash
+# From the repo root, with lexicons/ populated (see lexicons/README.md)
+DATABASE_URL='<your Neon connection string>' npx tsx -e "
+  import('./src/core/analysis-service.js').then(async m => {
+    for (const o of await m.seedLexiconsFromDisk()) console.log(o.status, o.lexicon, o.file, o.terms ?? '');
+    process.exit(0);
+  })"
+```
+
+It's idempotent — a lexicon that already exists is skipped — so it's safe to
+re-run, and safe to run against a Neon branch first if you want to rehearse it.
+
+After that, **Pre-compute the whole library** on the Analysis screen (or the same
+trick calling `prewarmLexicons()`) fills `page_sentiment`, which is what guests
+actually browse. Bag-of-words scoring is local and free, so this costs nothing
+but time.
+
+Adding a dictionary later needs no redeploy: upload it through the Analysis
+screen as a member, or re-run the seed above.
+
 ## Rate limiting
 
 On by default, and sized for a public deployment. Limits are counted per
