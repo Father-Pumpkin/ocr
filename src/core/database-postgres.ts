@@ -676,12 +676,24 @@ export class PostgresAdapter implements DatabaseAdapter {
   }
 
   async insertLexiconTerms(terms: Array<{ lexiconId: number; dimensionId: number; term: string; value: number }>): Promise<number> {
+    // Published dictionaries repeat terms — AFINN-es lists 332 twice, with
+    // different scores. Postgres rejects an ON CONFLICT DO UPDATE that would
+    // touch the same row twice in one statement ("cannot affect row a second
+    // time"), which aborts the insert and leaves the lexicon half-loaded. Dedupe
+    // first, last occurrence winning, which is what SQLite's row-by-row upsert
+    // does anyway — so both adapters store the same thing.
+    const byKey = new Map<string, { lexicon_id: number; dimension_id: number; term: string; value: number }>();
+    for (const t of terms) {
+      byKey.set(`${t.lexiconId}:${t.dimensionId}:${t.term}`, {
+        lexicon_id: t.lexiconId, dimension_id: t.dimensionId, term: t.term, value: t.value,
+      });
+    }
+    const rows = [...byKey.values()];
+
     const CHUNK = 1000;
     let inserted = 0;
-    for (let i = 0; i < terms.length; i += CHUNK) {
-      const chunk = terms.slice(i, i + CHUNK).map((t) => ({
-        lexicon_id: t.lexiconId, dimension_id: t.dimensionId, term: t.term, value: t.value,
-      }));
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK);
       await this.sql`
         INSERT INTO lexicon_terms ${this.sql(chunk, 'lexicon_id', 'dimension_id', 'term', 'value')}
         ON CONFLICT (lexicon_id, dimension_id, term) DO UPDATE SET value = EXCLUDED.value
@@ -732,7 +744,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         FROM page_sentiment
         JOIN pages ON page_sentiment.page_id = pages.id
         WHERE pages.book_id = ${bookId}
-          AND page_sentiment.dimension_id = ANY(${this.sql.array(dimensionIds)})
+          AND page_sentiment.dimension_id = ANY(${dimensionIds}::int[])
           AND pages.page_number >= ${pageStart}
           AND pages.page_number <= ${pageEnd}
         ORDER BY pages.page_number, page_sentiment.dimension_id
@@ -743,7 +755,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         FROM page_sentiment
         JOIN pages ON page_sentiment.page_id = pages.id
         WHERE pages.book_id = ${bookId}
-          AND page_sentiment.dimension_id = ANY(${this.sql.array(dimensionIds)})
+          AND page_sentiment.dimension_id = ANY(${dimensionIds}::int[])
           AND pages.page_number >= ${pageStart}
         ORDER BY pages.page_number, page_sentiment.dimension_id
       `;
@@ -753,7 +765,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         FROM page_sentiment
         JOIN pages ON page_sentiment.page_id = pages.id
         WHERE pages.book_id = ${bookId}
-          AND page_sentiment.dimension_id = ANY(${this.sql.array(dimensionIds)})
+          AND page_sentiment.dimension_id = ANY(${dimensionIds}::int[])
           AND pages.page_number <= ${pageEnd}
         ORDER BY pages.page_number, page_sentiment.dimension_id
       `;
@@ -763,7 +775,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         FROM page_sentiment
         JOIN pages ON page_sentiment.page_id = pages.id
         WHERE pages.book_id = ${bookId}
-          AND page_sentiment.dimension_id = ANY(${this.sql.array(dimensionIds)})
+          AND page_sentiment.dimension_id = ANY(${dimensionIds}::int[])
         ORDER BY pages.page_number, page_sentiment.dimension_id
       `;
     } else if (pageStart !== undefined && pageEnd !== undefined) {
@@ -807,6 +819,13 @@ export class PostgresAdapter implements DatabaseAdapter {
     return rows.map(coercePageSentiment);
   }
 
+  /**
+   * NB: pass arrays straight through with an explicit `::int[]` cast. This
+   * driver's `sql.array()` helper does not yield a usable operand for `ANY()`
+   * ("op ANY/ALL (array) requires array on right side"), and interpolating
+   * pre-built sql fragments loses the parameter types on top of that — the
+   * symptom is `operator does not exist: integer = text`.
+   */
   async getSentimentScores(bookIds: number[], dimensionIds?: number[], methodIds?: number[]): Promise<SentimentScoreDetail[]> {
     if (bookIds.length === 0) return [];
 
@@ -816,12 +835,10 @@ export class PostgresAdapter implements DatabaseAdapter {
       book_title: string; dimension_name: string; method_name: string;
     }
 
-    const dimFilter = dimensionIds && dimensionIds.length > 0
-      ? this.sql`AND ps.dimension_id = ANY(${this.sql.array(dimensionIds)})`
-      : this.sql``;
-    const methodFilter = methodIds && methodIds.length > 0
-      ? this.sql`AND ps.method_id = ANY(${this.sql.array(methodIds)})`
-      : this.sql``;
+    // NULL means "no filter", which keeps this one static query instead of
+    // stitching sql fragments together — see the note on ANY() casts below.
+    const dims = dimensionIds && dimensionIds.length > 0 ? dimensionIds : null;
+    const methods = methodIds && methodIds.length > 0 ? methodIds : null;
 
     const rows = await this.sql<Raw[]>`
       SELECT ps.page_id, ps.dimension_id, ps.method_id, ps.score, ps.rationale, ps.model,
@@ -832,7 +849,9 @@ export class PostgresAdapter implements DatabaseAdapter {
       JOIN books      b ON p.book_id = b.id
       JOIN dimensions d ON ps.dimension_id = d.id
       JOIN methods    m ON ps.method_id = m.id
-      WHERE p.book_id = ANY(${this.sql.array(bookIds)}) ${dimFilter} ${methodFilter}
+      WHERE p.book_id = ANY(${bookIds}::int[])
+        AND (${dims}::int[] IS NULL OR ps.dimension_id = ANY(${dims}::int[]))
+        AND (${methods}::int[] IS NULL OR ps.method_id = ANY(${methods}::int[]))
       ORDER BY p.book_id, p.page_number, ps.dimension_id, ps.method_id
     `;
 

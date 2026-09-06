@@ -36,6 +36,7 @@ export async function createBatchJob(batchId, bookIds, kind) { return (await get
 export async function getBatchJob(batchId) { return (await getAdapter()).getBatchJob(batchId); }
 export async function updateBatchJobStatus(batchId, status) { return (await getAdapter()).updateBatchJobStatus(batchId, status); }
 export async function getInProgressBatchJobs() { return (await getAdapter()).getInProgressBatchJobs(); }
+export async function getRecentBatchJobs(kind, limit) { return (await getAdapter()).getRecentBatchJobs(kind, limit); }
 export async function createDimension(name, description, minLabel, maxLabel) { return (await getAdapter()).createDimension(name, description, minLabel, maxLabel); }
 export async function getDimensionByName(name) { return (await getAdapter()).getDimensionByName(name); }
 export async function getAllDimensions() { return (await getAdapter()).getAllDimensions(); }
@@ -52,6 +53,8 @@ export async function deleteMethod(id) { return (await getAdapter()).deleteMetho
 export async function createLexicon(name, scaleMin, scaleMax, note) { return (await getAdapter()).createLexicon(name, scaleMin, scaleMax, note); }
 export async function getLexiconByName(name) { return (await getAdapter()).getLexiconByName(name); }
 export async function insertLexiconTerms(terms) { return (await getAdapter()).insertLexiconTerms(terms); }
+export async function getAllLexicons() { return (await getAdapter()).getAllLexicons(); }
+export async function deleteLexicon(id) { return (await getAdapter()).deleteLexicon(id); }
 export async function getLexiconTerms(lexiconId, dimensionId) { return (await getAdapter()).getLexiconTerms(lexiconId, dimensionId); }
 export async function getPageImage(bookId, pageNumber) { return (await getAdapter()).getPageImage(bookId, pageNumber); }
 export async function setPageImage(bookId, pageNumber, imageData) { return (await getAdapter()).setPageImage(bookId, pageNumber, imageData); }
