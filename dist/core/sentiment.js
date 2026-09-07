@@ -18,6 +18,7 @@ import { getAllBooks, getBookByName, getAllDimensions, getMethodByName, getPages
 import { createSentimentBatch, DEFAULT_MODEL } from './ocr.js';
 import { getScorer, parseMethodConfig } from './scoring.js';
 import { mapLimit, isTextPage } from './quality.js';
+import { resolveSections, pageInAnySection, parsePageTags, isMeaningfulSection, } from './sections.js';
 // Below this many page×dimension pairs, an LLM method scores inline; at/above it
 // submits a Batch API job. Lexicon methods ignore this — they always run locally.
 const INLINE_MAX_ITEMS = 40;
@@ -42,23 +43,34 @@ async function resolveDimensions(names) {
     const byName = new Map(all.map((d) => [d.name, d]));
     return names.map((n) => byName.get(n)).filter((d) => !!d);
 }
-/** Page tags are stored as a JSON array string; tolerate anything malformed. */
-function pageTags(page) {
-    try {
-        const parsed = JSON.parse(page.tags || '[]');
-        return Array.isArray(parsed) ? parsed.map(String) : [];
+/**
+ * Resolve tag-bounded sections against the books in scope.
+ *
+ * Deliberately reads each book's *complete* page list rather than the
+ * page-range-filtered one: a marker outside the requested range still defines
+ * where the section starts, so filtering first would resolve sections against a
+ * window that may not contain their own boundaries.
+ */
+async function resolveScopeSections(books, specs = []) {
+    const meaningful = specs.filter(isMeaningfulSection);
+    if (meaningful.length === 0)
+        return null;
+    const pages = [];
+    for (const book of books) {
+        for (const p of await getPages(book.id)) {
+            pages.push({ book_id: book.id, page_number: p.page_number, tags: parsePageTags(p.tags) });
+        }
     }
-    catch {
-        return [];
-    }
+    return resolveSections(meaningful, pages);
 }
 /** (page, dimension) pairs in scope still needing a score for this method. */
-async function collectItems(books, dims, pageStart, pageEnd, overwrite, methodId, tags = []) {
+async function collectItems(books, dims, pageStart, pageEnd, overwrite, methodId, tags = [], sections = []) {
     const bookIds = books.map((b) => b.id);
     const dimIds = dims.map((d) => d.id);
     const existing = overwrite
         ? new Set()
         : new Set((await getSentimentScores(bookIds, dimIds, [methodId])).map((r) => `${r.page_id}:${r.dimension_id}`));
+    const resolved = await resolveScopeSections(books, sections);
     const items = [];
     let skipped = 0;
     for (const book of books) {
@@ -66,7 +78,9 @@ async function collectItems(books, dims, pageStart, pageEnd, overwrite, methodId
         for (const p of pages) {
             if (!isTextPage(p))
                 continue;
-            if (tags.length && !pageTags(p).some((t) => tags.includes(t)))
+            if (tags.length && !parsePageTags(p.tags).some((t) => tags.includes(t)))
+                continue;
+            if (resolved && !pageInAnySection(resolved, book.id, p.page_number))
                 continue;
             for (const d of dims) {
                 if (existing.has(`${p.id}:${d.id}`)) {
@@ -120,7 +134,7 @@ export async function estimateScoring(input) {
         return shell('No matching transcribed books in scope.');
     if (dims.length === 0)
         return shell('No sentiment dimensions selected.');
-    const { items, skipped } = await collectItems(books, dims, input.pageStart, input.pageEnd, !!input.overwrite, method.id, input.tags);
+    const { items, skipped } = await collectItems(books, dims, input.pageStart, input.pageEnd, !!input.overwrite, method.id, input.tags, input.sections);
     const requiredCalls = method.kind === 'lexicon' ? 0 : items.length;
     const recommendedMode = method.kind === 'lexicon' || items.length <= BATCH_RECOMMEND_THRESHOLD ? 'standard' : 'batch';
     return {
@@ -164,7 +178,7 @@ export async function scorePages(input) {
     if (dims.length === 0) {
         return { ...base, mode: 'noop', message: 'No sentiment dimensions defined. Create one first with create_dimension.' };
     }
-    const { items, skipped } = await collectItems(books, dims, input.pageStart, input.pageEnd, !!input.overwrite, method.id, input.tags);
+    const { items, skipped } = await collectItems(books, dims, input.pageStart, input.pageEnd, !!input.overwrite, method.id, input.tags, input.sections);
     base.skipped = skipped;
     if (items.length === 0) {
         return { ...base, mode: 'noop', message: `Nothing to score — all ${skipped} in-scope page–dimension pair(s) already have a "${methodName}" score. Pass overwrite: true to re-score.` };

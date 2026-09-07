@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, ApiError, type RunRequest } from '../lib/api';
 import type {
@@ -11,6 +20,8 @@ import type {
   GroupBy,
   RunMode,
   ScoringEstimate,
+  SectionCoverage,
+  SectionSpec,
   SentimentBatch,
   StyleFamily,
 } from '../types';
@@ -53,6 +64,7 @@ const GROUP_BY_LABEL: Record<GroupBy, string> = {
   tag: 'By tag',
   book_tag: 'By book × tag',
   method: 'By method',
+  section: 'By section',
 };
 
 const EXPORT_LABEL: Record<ExportFormat, string> = {
@@ -83,6 +95,8 @@ export function Analysis() {
   const [pageStart, setPageStart] = useState('');
   const [pageEnd, setPageEnd] = useState('');
   const [tags, setTags] = useState<string[]>([]);
+  // Tag-bounded sections, resolved per book. Empty = no section filter.
+  const [sections, setSections] = useState<SectionSpec[]>([]);
   const [overwrite, setOverwrite] = useState(false);
   // null = follow the estimate's recommendation; a value overrides it.
   const [modeOverride, setModeOverride] = useState<RunMode | null>(null);
@@ -157,12 +171,22 @@ export function Analysis() {
     [options, styleId],
   );
 
+  // A row with neither marker set describes the whole book, which is not a
+  // section — it's the default. Dropping those lets a half-filled new row sit in
+  // the form without silently changing the scope.
+  const usableSections = useMemo(
+    () => sections.filter((sec) => (sec.startTag ?? '') !== '' || (sec.endTag ?? '') !== ''),
+    [sections],
+  );
+  const sectionKey = JSON.stringify(usableSections);
+
   const runRequest: RunRequest = useMemo(
     () => ({
       style: styleId,
       books: books.length ? books : undefined,
       dimensions: dimensions.length ? dimensions : undefined,
       tags: tags.length ? tags : undefined,
+      sections: usableSections.length ? usableSections : undefined,
       pageStart: pageStart ? Number(pageStart) : undefined,
       pageEnd: pageEnd ? Number(pageEnd) : undefined,
       rubric: showRubric && rubric.trim() ? rubric : undefined,
@@ -170,7 +194,10 @@ export function Analysis() {
       mode: modeOverride ?? undefined,
       overwrite,
     }),
-    [styleId, books, dimensions, tags, pageStart, pageEnd, showRubric, rubric, rubricName, overwrite, modeOverride],
+    // sectionKey rather than usableSections: the array identity changes on every
+    // keystroke elsewhere in the form, which would refire the estimate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [styleId, books, dimensions, tags, sectionKey, pageStart, pageEnd, showRubric, rubric, rubricName, overwrite, modeOverride],
   );
 
   // Size the run whenever the selection settles. Debounced because typing a page
@@ -212,12 +239,14 @@ export function Analysis() {
       dimensions: dimensions.length ? dimensions : undefined,
       methods: compareMethods || !style?.method ? undefined : [style.method],
       tags: tags.length ? tags : undefined,
+      sections: usableSections.length ? usableSections : undefined,
       pageStart: pageStart ? Number(pageStart) : undefined,
       pageEnd: pageEnd ? Number(pageEnd) : undefined,
       groupBy: groupBy || undefined,
       aggregate: aggregate || undefined,
     }),
-    [books, dimensions, style?.method, compareMethods, tags, pageStart, pageEnd, groupBy, aggregate],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [books, dimensions, style?.method, compareMethods, tags, sectionKey, pageStart, pageEnd, groupBy, aggregate],
   );
 
   const loadResults = useCallback(async () => {
@@ -579,6 +608,12 @@ export function Analysis() {
                 <TagSelect value={tags} onChange={setTags} suggestions={options.tags} placeholder="Any tag…" />
               </div>
             </div>
+            <SectionPicker
+              sections={sections}
+              onChange={setSections}
+              tags={options.tags}
+              coverage={results?.sections ?? []}
+            />
             <label className="flex items-start gap-2 text-sm text-ink">
               <input
                 type="checkbox"
@@ -782,6 +817,115 @@ function StyleCard({
       )}
       {style.hint && <p className="mt-1.5 text-xs text-warn">{style.hint}</p>}
     </button>
+  );
+}
+
+/**
+ * Sections — page ranges bounded by structural tags, resolved per book.
+ *
+ * A page range can't ask this question: page 6 is the first page of content in
+ * one book and page 4 in another, so a fixed range compares different parts of
+ * different books. Naming the boundaries by tag instead makes "the final act"
+ * mean the same thing everywhere, and several sections can be defined at once so
+ * they can be compared against each other in the results.
+ *
+ * Either end may be left as the edge of the book, so "→ climax" is a valid
+ * section meaning everything up to and including it.
+ */
+function SectionPicker({
+  sections,
+  onChange,
+  tags,
+  coverage,
+}: {
+  sections: SectionSpec[];
+  onChange: Dispatch<SetStateAction<SectionSpec[]>>;
+  tags: string[];
+  coverage: SectionCoverage[];
+}) {
+  // Functional updates rather than reading `sections` from the closure: two
+  // clicks on "add" inside one React batch would otherwise both build their new
+  // array from the same stale value and only one row would appear.
+  const update = (i: number, patch: Partial<SectionSpec>) =>
+    onChange((prev) => prev.map((sec, n) => (n === i ? { ...sec, ...patch } : sec)));
+  const remove = (i: number) => onChange((prev) => prev.filter((_, n) => n !== i));
+  const add = () => onChange((prev) => [...prev, { startTag: null, endTag: null }]);
+
+  const byLabel = new Map(coverage.map((c) => [c.label, c]));
+  const labelFor = (sec: SectionSpec): string =>
+    `${sec.startTag || 'start of book'} → ${sec.endTag || 'end of book'}`;
+
+  const select = (value: string | null | undefined, onPick: (v: string | null) => void, edge: string) => (
+    <select
+      value={value ?? ''}
+      onChange={(e) => onPick(e.target.value || null)}
+      className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 text-sm text-ink focus:border-accent focus:outline-none"
+    >
+      <option value="">{edge}</option>
+      {tags.map((t) => (
+        <option key={t} value={t}>
+          {t}
+        </option>
+      ))}
+    </select>
+  );
+
+  return (
+    <div>
+      <Label>Sections</Label>
+      <p className="mt-1 text-xs text-muted">
+        A range between two tags, found separately in each book — so “first page of content → climax”
+        means the same thing in books that paginate differently. Add several to compare them.
+      </p>
+
+      {sections.length > 0 && (
+        <div className="mt-2 space-y-2">
+          {sections.map((sec, i) => {
+            const cov = byLabel.get(labelFor(sec));
+            return (
+              <div key={i} className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-10 shrink-0 text-xs text-muted">from</span>
+                  {select(sec.startTag, (v) => update(i, { startTag: v }), 'start of book')}
+                  <span className="shrink-0 text-xs text-muted">to</span>
+                  {select(sec.endTag, (v) => update(i, { endTag: v }), 'end of book')}
+                  <button
+                    type="button"
+                    onClick={() => remove(i)}
+                    aria-label="Remove this section"
+                    className="h-9 shrink-0 rounded-lg border border-border px-2 text-sm text-muted hover:text-ink"
+                  >
+                    ×
+                  </button>
+                </div>
+                {/* Coverage is the thing most likely to surprise: only ~10 books
+                    carry a climax, so a section bounded by one says nothing
+                    about the rest. Reported per section once results load. */}
+                {cov && (
+                  <p className="pl-12 text-xs text-muted">
+                    {cov.booksResolved} book{cov.booksResolved === 1 ? '' : 's'} matched
+                    {cov.booksSkipped > 0 && (
+                      <span className="text-warn">
+                        {' '}
+                        · {cov.booksSkipped} skipped for a missing marker
+                      </span>
+                    )}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={add}
+        className="mt-2 text-sm text-accent hover:underline"
+      >
+        {sections.length === 0 ? '+ Add a section' : '+ Add another section'}
+      </button>
+    </div>
   );
 }
 

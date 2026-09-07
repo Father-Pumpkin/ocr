@@ -72,9 +72,17 @@ function exportFilename(result: AnalyzeResult, format: ExportFormat): string {
   return format === 'json' ? `${stem}.json` : `${stem}-${format}`;
 }
 
-function pagesCsv(rows: SentimentScoreDetail[]): string {
+/**
+ * The `sections` column appears only when sections were asked for. Adding it
+ * unconditionally would change the shape of every existing export for the sake
+ * of a column that is empty in most of them.
+ */
+function pagesCsv(rows: SentimentScoreDetail[], sectionsByPageId: Record<number, string[]> = {}): string {
+  const withSections = Object.keys(sectionsByPageId).length > 0;
   const header = [
-    'book', 'page', 'tags', 'dimension', 'method', 'model', 'score', 'rationale',
+    'book', 'page', 'tags',
+    ...(withSections ? ['sections'] : []),
+    'dimension', 'method', 'model', 'score', 'rationale',
   ];
   const body = [...rows]
     .sort(
@@ -88,6 +96,7 @@ function pagesCsv(rows: SentimentScoreDetail[]): string {
       r.book_title,
       r.page_number,
       r.tags.join('; '),
+      ...(withSections ? [(sectionsByPageId[r.page_id] ?? []).join('; ')] : []),
       r.dimension_name,
       r.method_name,
       r.model ?? '',
@@ -151,6 +160,6 @@ export function buildExport({ result, rows, format }: ExportInput): ExportFile {
     );
     return { filename, contentType: 'application/json; charset=utf-8', body };
   }
-  const body = format === 'pages.csv' ? pagesCsv(rows) : summaryCsv(result);
+  const body = format === 'pages.csv' ? pagesCsv(rows, result.sectionsByPageId) : summaryCsv(result);
   return { filename, contentType: 'text/csv; charset=utf-8', body };
 }
