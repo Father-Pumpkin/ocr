@@ -56,6 +56,12 @@ export interface BatchJobRow {
   book_ids: string; // JSON array string
   /** Which pipeline produced this batch, so resume/check routes to the right processor. */
   kind: string; // 'ocr' | 'sentiment'
+  /**
+   * Sentiment batches: JSON {method, dimensions} — what the batch measured.
+   * Null on OCR batches and on any sentiment batch submitted before this
+   * column existed.
+   */
+  scope: string | null;
   status: string;
   created_by: string | null;
   created_at: string;
@@ -179,7 +185,7 @@ export interface DatabaseAdapter {
   hasExistingTranscription(bookId: number, pageNumber: number): Promise<boolean>;
 
   // Batch jobs
-  createBatchJob(batchId: string, bookIds: number[], kind?: string): Promise<BatchJobRow>;
+  createBatchJob(batchId: string, bookIds: number[], kind?: string, scope?: string): Promise<BatchJobRow>;
   getBatchJob(batchId: string): Promise<BatchJobRow | undefined>;
   updateBatchJobStatus(batchId: string, status: string): Promise<void>;
   getInProgressBatchJobs(): Promise<BatchJobRow[]>;

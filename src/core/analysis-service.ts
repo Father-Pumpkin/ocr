@@ -636,6 +636,10 @@ export interface SentimentBatch {
   createdAt: string;
   completedAt: string | null;
   bookCount: number;
+  /** The instrument it scored with. Null on batches submitted before this was recorded. */
+  method: string | null;
+  /** The constructs it measured. */
+  dimensions: string[];
 }
 
 function toSentimentBatch(row: BatchJobRow): SentimentBatch {
@@ -646,12 +650,25 @@ function toSentimentBatch(row: BatchJobRow): SentimentBatch {
   } catch {
     /* malformed book_ids — the count is cosmetic */
   }
+  // Older sentiment batches predate the scope column, so this is best-effort:
+  // the panel says what it knows and stays quiet about what it does not.
+  let method: string | null = null;
+  let dimensions: string[] = [];
+  try {
+    const scope = row.scope ? (JSON.parse(row.scope) as { method?: string; dimensions?: string[] }) : null;
+    method = scope?.method ?? null;
+    dimensions = Array.isArray(scope?.dimensions) ? scope!.dimensions! : [];
+  } catch {
+    /* malformed scope — the panel degrades to the old, scopeless display */
+  }
   return {
     batchId: row.batch_id,
     status: row.status,
     createdAt: row.created_at,
     completedAt: row.completed_at,
     bookCount,
+    method,
+    dimensions,
   };
 }
 

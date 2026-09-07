@@ -159,6 +159,9 @@ export interface SentimentBatch {
   createdAt: string;
   completedAt: string | null;
   bookCount: number;
+  /** What the batch measured. Null on batches submitted before this was recorded. */
+  method: string | null;
+  dimensions: string[];
 }
 
 /** Result of scanning the lexicons folder on disk. */

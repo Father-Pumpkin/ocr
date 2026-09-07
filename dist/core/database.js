@@ -33,7 +33,7 @@ export async function getAllTags() { return (await getAdapter()).getAllTags(); }
 export async function setPageQuality(bookId, pageNumber, quality, reason) { return (await getAdapter()).setPageQuality(bookId, pageNumber, quality, reason); }
 export async function setPageIllustration(bookId, pageNumber, isIllustration) { return (await getAdapter()).setPageIllustration(bookId, pageNumber, isIllustration); }
 export async function hasExistingTranscription(bookId, pageNumber) { return (await getAdapter()).hasExistingTranscription(bookId, pageNumber); }
-export async function createBatchJob(batchId, bookIds, kind) { return (await getAdapter()).createBatchJob(batchId, bookIds, kind); }
+export async function createBatchJob(batchId, bookIds, kind, scope) { return (await getAdapter()).createBatchJob(batchId, bookIds, kind, scope); }
 export async function getBatchJob(batchId) { return (await getAdapter()).getBatchJob(batchId); }
 export async function updateBatchJobStatus(batchId, status) { return (await getAdapter()).updateBatchJobStatus(batchId, status); }
 export async function getInProgressBatchJobs() { return (await getAdapter()).getInProgressBatchJobs(); }

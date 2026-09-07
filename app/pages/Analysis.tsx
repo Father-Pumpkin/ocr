@@ -307,6 +307,28 @@ export function Analysis() {
     [books, dimensions, style?.method, methodsKey, tags, sectionKey, pageStart, pageEnd, groupBy, aggregate],
   );
 
+  /**
+   * Jump from a finished batch to what it produced.
+   *
+   * The results panel is driven by the instrument and dimension pickers, and
+   * nothing connected "your batch finished" to "set those two controls to these
+   * values" — so a completed batch was invisible unless you already knew what
+   * you had asked it for. This sets the selection to the batch's own scope,
+   * over the whole library, and loads it.
+   */
+  const viewBatchResults = (b: SentimentBatch) => {
+    if (b.method) setChartMethods([b.method]);
+    if (b.dimensions.length) setDimensions(b.dimensions);
+    setBooks([]);
+    setSections([]);
+    setTags([]);
+    setPageStart('');
+    setPageEnd('');
+    chooseView('compare');
+    // Results only auto-reload once they exist; a first view has to ask.
+    void loadResults();
+  };
+
   const onSaveRubric = async () => {
     setSavingRubric(true);
     setRunError(null);
@@ -823,6 +845,7 @@ export function Analysis() {
       {isMember && batches.length > 0 && (
         <BatchPanel
           batches={batches}
+          onView={viewBatchResults}
           onRefresh={reloadBatches}
           onChecked={async () => {
             await reloadBatches();
@@ -1177,10 +1200,12 @@ function BatchPanel({
   batches,
   onRefresh,
   onChecked,
+  onView,
 }: {
   batches: SentimentBatch[];
   onRefresh: () => Promise<void>;
   onChecked: () => Promise<void>;
+  onView: (b: SentimentBatch) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -1218,15 +1243,38 @@ function BatchPanel({
         {batches.map((b) => (
           <li key={b.batchId} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
             <div className="min-w-0">
-              <code className="block truncate text-xs text-ink">{b.batchId}</code>
+              {/* What it measured, first: a batch id identifies the job, but the
+                  question on finishing is "what did I get", and the panel used
+                  to answer only "it finished". */}
+              <span className="block truncate text-sm text-ink">
+                {b.method ? (
+                  <>
+                    <strong className="font-medium">{b.method}</strong>
+                    {b.dimensions.length > 0 && <> · {b.dimensions.join(', ')}</>}
+                  </>
+                ) : (
+                  <span className="text-muted">scope not recorded</span>
+                )}
+              </span>
               <span className="text-xs text-muted">
                 {new Date(b.createdAt).toLocaleString()} · {b.bookCount} book{b.bookCount === 1 ? '' : 's'}
               </span>
+              <code className="block truncate text-[10px] text-faint">{b.batchId}</code>
             </div>
             <div className="flex items-center gap-2">
               <Badge tone={b.status === 'complete' ? 'ok' : b.status === 'failed' ? 'danger' : 'warn'}>
                 {b.status}
               </Badge>
+              {b.status === 'complete' && b.method && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onView(b)}
+                  title="Show what this batch produced"
+                >
+                  View results
+                </Button>
+              )}
               {b.status !== 'complete' && (
                 <Button variant="secondary" size="sm" onClick={() => check(b.batchId)} disabled={busy === b.batchId}>
                   {busy === b.batchId ? 'Checking…' : 'Check now'}
