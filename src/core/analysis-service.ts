@@ -825,7 +825,11 @@ export async function getResults(input: ResultsRequest): Promise<AnalyzeResult> 
   return analyzeSentiment(input);
 }
 
-export async function exportResults(input: ResultsRequest, format: ExportFormat): Promise<ExportFile> {
+export async function exportResults(
+  input: ResultsRequest,
+  format: ExportFormat,
+  opts: { includeRationale?: boolean } = {},
+): Promise<ExportFile> {
   if (!EXPORT_FORMATS.includes(format)) {
     throw new AnalysisInputError(`Unsupported export format "${format}". Use one of: ${EXPORT_FORMATS.join(', ')}.`);
   }
@@ -835,7 +839,11 @@ export async function exportResults(input: ResultsRequest, format: ExportFormat)
       'Nothing to export yet — no scores match this selection. Run the analysis first.',
     );
   }
-  return buildExport({ result, rows: result.rows, format });
+  // An LLM rationale can quote the page it describes, so a download is the last
+  // place it should slip past the tier that the on-screen view already blocks.
+  const rows =
+    opts.includeRationale === false ? result.rows.map((r) => ({ ...r, rationale: null })) : result.rows;
+  return buildExport({ result, rows, format });
 }
 
 // ---------------------------------------------------------------------------

@@ -55,7 +55,8 @@ const ROUTES: Route[] = [
   { method: 'GET', path: '/api/models', guest: 'allow' },
   { method: 'GET', path: `/api/books/${B}/pages`, guest: 'allow' },
   { method: 'GET', path: `/api/books/${B}/pages/1/image`, guest: 'allow' },
-  { method: 'GET', path: `/api/books/${B}/pages/1/ocr-runs`, guest: 'allow' },
+  // Every OCR run is a full transcript of the page.
+  { method: 'GET', path: `/api/books/${B}/pages/1/ocr-runs`, guest: 'deny' },
   { method: 'GET', path: '/api/analysis/options', guest: 'allow' },
   { method: 'GET', path: '/api/analysis/results', guest: 'allow' },
   { method: 'GET', path: '/api/analysis/export?format=pages.csv', guest: 'allow' },
@@ -157,6 +158,43 @@ const member = createSessionToken('member@example.com');
 const guest = createSessionToken('someone-else@gmail.com');
 
 let failures = 0;
+/**
+ * The transcripts are the books. A guest may read everything computed *about*
+ * them and nothing of the text itself, so this checks the payloads rather than
+ * just the status codes — a 200 that carries the transcript is the failure this
+ * is looking for.
+ */
+{
+  const guestPages = await fetch(`${BASE}/api/books/${B}/pages`, {
+    headers: { Cookie: `${SESSION_COOKIE}=${guest}` },
+  });
+  const guestBody = (await guestPages.json()) as {
+    pages: Array<{ transcription: string | null; original_transcription: string | null; page_number: number }>;
+  };
+  if (!guestBody.pages) {
+    console.log('DEBUG guest /pages ->', guestPages.status, JSON.stringify(guestBody).slice(0, 200));
+  }
+  const leaked = (guestBody.pages ?? []).filter((p) => p.transcription || p.original_transcription);
+  if (leaked.length > 0) {
+    failures++;
+    console.log(`FAIL  guest page list still carries transcript text (${leaked.length} page(s))`);
+  } else {
+    console.log('PASS  guest page list carries no transcript text');
+  }
+
+  const memberPages = await fetch(`${BASE}/api/books/${B}/pages`, {
+    headers: { Cookie: `${SESSION_COOKIE}=${member}` },
+  });
+  const memberBody = (await memberPages.json()) as { pages: Array<{ transcription: string | null }> };
+  // The redaction must not have simply emptied the column for everyone.
+  if (memberBody.pages.some((p) => p.transcription)) {
+    console.log('PASS  members still receive the transcript');
+  } else {
+    failures++;
+    console.log('FAIL  redaction removed the transcript for members too');
+  }
+}
+
 for (const r of ROUTES) {
   const anon = await call(r, null);
   const g = await call(r, guest);
@@ -177,6 +215,7 @@ for (const r of ROUTES) {
   }
 }
 console.log(`${ROUTES.length - failures}/${ROUTES.length} routes enforce the expected tiers`);
+
 
 // The role must follow the allowlist, not the token it was minted with.
 const token = createSessionToken('promote-me@gmail.com');

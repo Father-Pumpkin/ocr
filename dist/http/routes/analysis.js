@@ -248,10 +248,23 @@ analysisRouter.get('/analysis/runs/:id', (req, res) => {
     }
     res.json({ run });
 });
+/**
+ * Scores are public; the sentences a model wrote about a page are not.
+ *
+ * A lexicon rationale is a match count and harmless, but an LLM rationale can
+ * quote the page it is describing, and there is no reliable way to tell one
+ * that quotes from one that does not. Dropping it for guests keeps the rule
+ * simple: no book text leaves the members' tier, by any route.
+ */
+function redactRationales(result) {
+    return { ...result, rows: result.rows.map((r) => ({ ...r, rationale: null })) };
+}
 // GET /api/analysis/results — aggregated scores for a slice, for the on-screen table
 analysisRouter.get('/analysis/results', async (req, res) => {
     try {
-        res.json(await getResults(analyzeInputFromQuery(req)));
+        const result = await getResults(analyzeInputFromQuery(req));
+        const guest = req.user?.role !== 'member';
+        res.json(guest ? redactRationales(result) : result);
     }
     catch (err) {
         handleError(err, res);
@@ -264,13 +277,21 @@ analysisRouter.get('/analysis/explain', async (req, res) => {
         const pageNumber = posInt(req.query.page);
         if (!pageNumber)
             throw new AnalysisInputError('A page number is required.');
-        res.json(await explainPageScore({
+        const explanation = await explainPageScore({
             book: str(req.query.book),
             pageNumber,
             method: str(req.query.method),
             dimension: str(req.query.dimension),
             negation: str(req.query.negation) === '1',
-        }));
+        });
+        // Guests get the reasoning without the text. The matched dictionary terms
+        // stay — they are the analysis, and a handful of scored words is not the
+        // page — but the transcript itself does not leave the members' tier. An LLM
+        // rationale can quote the page, so it is withheld on the same grounds.
+        const guest = req.user?.role !== 'member';
+        res.json(guest
+            ? { ...explanation, text: '', rationale: null, textRedacted: true }
+            : { ...explanation, textRedacted: false });
     }
     catch (err) {
         if (err instanceof ExplainError) {
@@ -284,7 +305,8 @@ analysisRouter.get('/analysis/explain', async (req, res) => {
 analysisRouter.get('/analysis/export', LIMITS.EXPORTS, async (req, res) => {
     try {
         const format = (str(req.query.format) || 'pages.csv');
-        const file = await exportResults(analyzeInputFromQuery(req), format);
+        const guest = req.user?.role !== 'member';
+        const file = await exportResults(analyzeInputFromQuery(req), format, { includeRationale: !guest });
         res.set('Content-Type', file.contentType);
         res.set('Content-Disposition', `attachment; filename="${file.filename}"`);
         res.set('Cache-Control', 'no-store');

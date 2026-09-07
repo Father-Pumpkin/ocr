@@ -7,8 +7,11 @@ import { Loading, ErrorBox, EmptyState, Card, Button, IconButton, Badge, buttonC
 import { ChevronLeft, ShieldCheck, Alert, ImageOff, Download, Pencil, Check, Gauge } from '../components/icons';
 import { useIsMember } from '../lib/session';
 
-function snippet(page: PageRow): string {
+function snippet(page: PageRow, textHidden: boolean): string {
   if (page.has_illustration) return '[illustration]';
+  // The server withholds the text from guests, so an empty string here means
+  // "not shown to you" rather than "this page is blank" — say which.
+  if (textHidden) return '— transcript not shown —';
   const t = (page.transcription ?? '').replace(/\s+/g, ' ').trim();
   if (!t) return '—';
   return t.length > 120 ? t.slice(0, 120) + '…' : t;
@@ -173,10 +176,12 @@ export function BookDetail() {
                 <Gauge className="h-4 w-4" />
                 Analyse
               </Link>
-              <Button variant="secondary" size="sm" onClick={exportTxt} title="Download the full transcription as a .txt">
-                <Download className="h-4 w-4" />
-                Download
-              </Button>
+              {isMember && (
+                <Button variant="secondary" size="sm" onClick={exportTxt} title="Download the full transcription as a .txt">
+                  <Download className="h-4 w-4" />
+                  Download
+                </Button>
+              )}
               {isMember && (
                 <Button
                   variant="secondary"
@@ -253,6 +258,7 @@ export function BookDetail() {
 }
 
 function PageRowItem({ book, page }: { book: string; page: PageRow }) {
+  const isMember = useIsMember();
   const tags = parseTags(page.tags);
   const suspect = page.ocr_quality === 'suspect';
   const [imgOk, setImgOk] = useState(true);
@@ -279,7 +285,7 @@ function PageRowItem({ book, page }: { book: string; page: PageRow }) {
           )}
         </div>
         <span className="w-6 shrink-0 text-right font-serif text-sm text-faint">{page.page_number}</span>
-        <span className="min-w-0 flex-1 truncate text-sm text-ink">{snippet(page)}</span>
+        <span className="min-w-0 flex-1 truncate text-sm text-ink">{snippet(page, !isMember)}</span>
         <span className="flex shrink-0 items-center gap-1.5">
           {page.ocr_quality === 'ok' && (
             <Badge tone="ok">
