@@ -53,11 +53,11 @@ export function tokenize(text: string): string[] {
 }
 
 // Common Spanish negators — within a small window, flip a matched term's value.
-const NEGATORS = new Set([
+export const NEGATORS = new Set([
   'no', 'nunca', 'jamás', 'jamas', 'ni', 'tampoco', 'sin', 'nada', 'nadie',
   'ningún', 'ninguna', 'ninguno', 'ningun',
 ]);
-const NEGATION_WINDOW = 3;
+export const NEGATION_WINDOW = 3;
 
 // ---- Scorers ----
 

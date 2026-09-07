@@ -1,4 +1,5 @@
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
+import qs from 'qs';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +32,14 @@ export async function createHttpServer(port: number): Promise<Express> {
   // trust. The IP-keyed login limiter is meaningless without this. Trust exactly
   // one hop rather than `true`, which would let a client forge X-Forwarded-For.
   if (isProd()) app.set('trust proxy', 1);
+
+  // Express's default query parser is qs with arrayLimit: 20 — past twenty
+  // repeats of the same key it stops building an array and returns an object
+  // keyed by index instead. Every list-valued filter here (?books=…&books=…,
+  // methods, tags, dimensions, sections) then stringified to "[object Object]",
+  // matched nothing, and returned an empty result with a 200. Selecting 21 of
+  // the 72 books was enough to trigger it, silently.
+  app.set('query parser', (str: string) => qs.parse(str, { arrayLimit: 5000 }));
 
   app.use(express.json({ limit: '50mb' }));
 

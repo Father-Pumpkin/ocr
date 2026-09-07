@@ -38,7 +38,12 @@ import {
   type ResolvedSection,
 } from './sections.js';
 
-export type GroupBy = 'page' | 'book' | 'tag' | 'book_tag' | 'method' | 'section';
+export type GroupBy = 'page' | 'book' | 'tag' | 'book_tag' | 'method' | 'section' | 'book_section';
+
+export const GROUP_BY_VALUES: readonly GroupBy[] = [
+  'page', 'book', 'tag', 'book_tag', 'method', 'section', 'book_section',
+];
+export const AGGREGATE_VALUES: readonly Aggregate[] = ['series', 'mean'];
 export type Aggregate = 'series' | 'mean';
 
 export interface AnalyzeInput {
@@ -66,6 +71,43 @@ export interface SeriesPoint {
   rationale: string | null;
 }
 
+/**
+ * How a group's scores are actually distributed.
+ *
+ * The mean on its own was misleading in ways that showed up immediately in real
+ * data. Three cases from this corpus, all of which a bare mean renders
+ * identically to a well-behaved one:
+ *
+ *   - A book whose pages are half at 0.0 and half at 1.0 has a mean of 0.500 and
+ *     lands exactly on the "neutral" midpoint, despite containing no neutral
+ *     page at all. `sd` and `railShare` separate that from genuine neutrality.
+ *   - A group's mean can sit two thirds of the axis away from its median when
+ *     the distribution is skewed — one book reads mean 0.577, median 1.000.
+ *   - Some instruments are effectively binary classifiers (one puts 60% of pages
+ *     at 0 or 1; another puts 0.4% there), so their "means" are not the same
+ *     kind of quantity and should not be compared as if they were.
+ *
+ * `nBooks` exists because `count` is pages, and pages within one book are not
+ * independent observations. A group of 50 pages drawn from 10 books, one of
+ * which supplies a quarter of them, is weaker evidence than the count suggests.
+ *
+ * All of it is arithmetic over rows already in memory — no extra queries.
+ */
+export interface GroupStats {
+  sd: number;
+  median: number;
+  q1: number;
+  q3: number;
+  min: number;
+  max: number;
+  /** Half-width of the 95% CI of the mean (1.96 × standard error). */
+  ci95: number;
+  /** Distinct books behind the group — the real unit of replication. */
+  nBooks: number;
+  /** Share of scores pinned at 0 or 1; high values mean a near-binary instrument. */
+  railShare: number;
+}
+
 export interface AnalyzeGroup {
   /** Display label: a book title, a tag, "book — tag", a method, or a section. */
   key: string;
@@ -74,7 +116,45 @@ export interface AnalyzeGroup {
   method: string;
   count: number;
   mean?: number;
+  /** Present whenever a mean is. See GroupStats for why the mean isn't enough. */
+  stats?: GroupStats;
+  /**
+   * The pages this group averaged over, so a reader can go from a number back to
+   * the text behind it. Membership depends on the grouping rule, which lives
+   * here — recomputing it in the client would be a second copy of that logic,
+   * free to drift from this one.
+   */
+  pageIds?: number[];
   points?: SeriesPoint[];
+}
+
+function quantile(sorted: number[], q: number): number {
+  if (sorted.length === 0) return 0;
+  const pos = (sorted.length - 1) * q;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
+function describe(rows: SentimentScoreDetail[]): GroupStats {
+  const values = rows.map((r) => r.score).sort((a, b) => a - b);
+  const n = values.length;
+  const mean = values.reduce((s, v) => s + v, 0) / n;
+  // Population sd: these are all the scored pages in the group, not a sample
+  // drawn from a larger pool of them.
+  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+  const sd = Math.sqrt(variance);
+  return {
+    sd: round3(sd),
+    median: round3(quantile(values, 0.5)),
+    q1: round3(quantile(values, 0.25)),
+    q3: round3(quantile(values, 0.75)),
+    min: round3(values[0]),
+    max: round3(values[n - 1]),
+    ci95: round3(n > 1 ? (1.96 * sd) / Math.sqrt(n) : 0),
+    nBooks: new Set(rows.map((r) => r.book_id)).size,
+    railShare: round3(values.filter((v) => v <= 0.001 || v >= 0.999).length / n),
+  };
 }
 
 export interface SectionCoverage {
@@ -101,6 +181,12 @@ export interface AnalyzeResult {
    * on which dimension or method scored it. Empty unless sections were asked for.
    */
   sectionsByPageId: Record<number, string[]>;
+  /**
+   * book title → the first and last page it actually has. Lets a client place a
+   * page at its true position in its book rather than within whatever subset an
+   * instrument happened to score.
+   */
+  bookPageSpans: Record<string, { first: number; last: number }>;
   groups: AnalyzeGroup[];
   /**
    * Every score row that survived the filters, ungrouped. The aggregation above
@@ -163,6 +249,14 @@ function groupKeys(
       const hits = sectionsForPage(sections, r.book_id, r.page_number);
       return hits.length ? hits : ['(outside every section)'];
     }
+    case 'book_section': {
+      // The axis that shows whether a corpus-level arc is real. Grouping by
+      // section alone pools every book together and hides the spread; grouping
+      // by book alone collapses each book to one number and hides the arc. Only
+      // the cross of the two shows that a book can run opposite to the average.
+      const hits = sectionsForPage(sections, r.book_id, r.page_number);
+      return (hits.length ? hits : ['(outside every section)']).map((sec) => `${r.book_title} — ${sec}`);
+    }
     case 'tag': {
       const tags = tagFilter.length ? r.tags.filter((t) => tagFilter.includes(t)) : r.tags;
       return tags.length ? tags : ['(untagged)'];
@@ -174,13 +268,34 @@ function groupKeys(
   }
 }
 
-async function countTextPages(books: BookRow[], pageStart?: number, pageEnd?: number): Promise<number> {
-  let n = 0;
+/**
+ * Count in-scope text pages, and record each book's real page span on the way
+ * through.
+ *
+ * The span matters for any "position in book" axis. Deriving position from the
+ * *scored* pages instead puts the same physical page at a different position for
+ * every instrument, because dictionaries differ in which pages they match at
+ * all — one dictionary finding a word on page 1 and another not shifts every
+ * point of one line relative to the other. Anchoring to the book fixes that, and
+ * `books.page_count` can't be used for it: it still holds the pre-split spread
+ * count and understates 60 of the 72 books here.
+ */
+async function scanPages(
+  books: BookRow[],
+  pageStart?: number,
+  pageEnd?: number,
+): Promise<{ textPages: number; spans: Record<string, { first: number; last: number }> }> {
+  let textPages = 0;
+  const spans: Record<string, { first: number; last: number }> = {};
   for (const b of books) {
     const pages = await getPages(b.id, pageStart, pageEnd);
-    n += pages.filter(isTextPage).length;
+    textPages += pages.filter(isTextPage).length;
+    const numbers = pages.map((p) => p.page_number);
+    if (numbers.length) {
+      spans[b.title] = { first: Math.min(...numbers), last: Math.max(...numbers) };
+    }
   }
-  return n;
+  return { textPages, spans };
 }
 
 export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResult> {
@@ -221,6 +336,7 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
     tags: tagFilter,
     sections: sectionCoverage,
     sectionsByPageId: {},
+    bookPageSpans: {},
     groups: [],
     rows: [],
     coverage: { booksMatched: books.length, textPages: 0, scoredPages: 0, scores: 0, ...extra },
@@ -246,7 +362,7 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
     rows = rows.filter((r) => sectionsForPage(resolvedSections, r.book_id, r.page_number).length > 0);
   }
 
-  const textPages = await countTextPages(books, input.pageStart, input.pageEnd);
+  const { textPages, spans: bookPageSpans } = await scanPages(books, input.pageStart, input.pageEnd);
   const scoredPages = new Set(rows.map((r) => r.page_id)).size;
   const methodCount = new Set(rows.map((r) => r.method_name)).size;
 
@@ -295,7 +411,15 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
           groups.push({ key, dimension: dim.name, method: methodName, count: points.length, points });
         } else {
           const mean = rs.reduce((s, r) => s + r.score, 0) / rs.length;
-          groups.push({ key, dimension: dim.name, method: methodName, count: rs.length, mean: round3(mean) });
+          groups.push({
+            key,
+            dimension: dim.name,
+            method: methodName,
+            count: rs.length,
+            mean: round3(mean),
+            stats: describe(rs),
+            pageIds: [...new Set(rs.map((r) => r.page_id))],
+          });
         }
       }
     }
@@ -340,6 +464,7 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
     tags: tagFilter,
     sections: sectionCoverage,
     sectionsByPageId,
+    bookPageSpans,
     groups,
     rows,
     coverage: { booksMatched: books.length, textPages, scoredPages, scores: rows.length },

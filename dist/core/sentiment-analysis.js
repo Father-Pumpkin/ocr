@@ -18,6 +18,38 @@
 import { getAllBooks, getBookByName, getAllDimensions, getAllMethods, getPages, getSentimentScores, } from './database.js';
 import { isTextPage } from './quality.js';
 import { resolveSections, sectionsForPage, parsePageTags, isMeaningfulSection, } from './sections.js';
+export const GROUP_BY_VALUES = [
+    'page', 'book', 'tag', 'book_tag', 'method', 'section', 'book_section',
+];
+export const AGGREGATE_VALUES = ['series', 'mean'];
+function quantile(sorted, q) {
+    if (sorted.length === 0)
+        return 0;
+    const pos = (sorted.length - 1) * q;
+    const lo = Math.floor(pos);
+    const hi = Math.ceil(pos);
+    return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+function describe(rows) {
+    const values = rows.map((r) => r.score).sort((a, b) => a - b);
+    const n = values.length;
+    const mean = values.reduce((s, v) => s + v, 0) / n;
+    // Population sd: these are all the scored pages in the group, not a sample
+    // drawn from a larger pool of them.
+    const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+    const sd = Math.sqrt(variance);
+    return {
+        sd: round3(sd),
+        median: round3(quantile(values, 0.5)),
+        q1: round3(quantile(values, 0.25)),
+        q3: round3(quantile(values, 0.75)),
+        min: round3(values[0]),
+        max: round3(values[n - 1]),
+        ci95: round3(n > 1 ? (1.96 * sd) / Math.sqrt(n) : 0),
+        nBooks: new Set(rows.map((r) => r.book_id)).size,
+        railShare: round3(values.filter((v) => v <= 0.001 || v >= 0.999).length / n),
+    };
+}
 const round3 = (x) => Math.round(x * 1000) / 1000;
 async function resolveBooks(names) {
     const all = await getAllBooks();
@@ -59,6 +91,14 @@ function groupKeys(r, groupBy, tagFilter, sections) {
             const hits = sectionsForPage(sections, r.book_id, r.page_number);
             return hits.length ? hits : ['(outside every section)'];
         }
+        case 'book_section': {
+            // The axis that shows whether a corpus-level arc is real. Grouping by
+            // section alone pools every book together and hides the spread; grouping
+            // by book alone collapses each book to one number and hides the arc. Only
+            // the cross of the two shows that a book can run opposite to the average.
+            const hits = sectionsForPage(sections, r.book_id, r.page_number);
+            return (hits.length ? hits : ['(outside every section)']).map((sec) => `${r.book_title} — ${sec}`);
+        }
         case 'tag': {
             const tags = tagFilter.length ? r.tags.filter((t) => tagFilter.includes(t)) : r.tags;
             return tags.length ? tags : ['(untagged)'];
@@ -69,13 +109,30 @@ function groupKeys(r, groupBy, tagFilter, sections) {
         }
     }
 }
-async function countTextPages(books, pageStart, pageEnd) {
-    let n = 0;
+/**
+ * Count in-scope text pages, and record each book's real page span on the way
+ * through.
+ *
+ * The span matters for any "position in book" axis. Deriving position from the
+ * *scored* pages instead puts the same physical page at a different position for
+ * every instrument, because dictionaries differ in which pages they match at
+ * all — one dictionary finding a word on page 1 and another not shifts every
+ * point of one line relative to the other. Anchoring to the book fixes that, and
+ * `books.page_count` can't be used for it: it still holds the pre-split spread
+ * count and understates 60 of the 72 books here.
+ */
+async function scanPages(books, pageStart, pageEnd) {
+    let textPages = 0;
+    const spans = {};
     for (const b of books) {
         const pages = await getPages(b.id, pageStart, pageEnd);
-        n += pages.filter(isTextPage).length;
+        textPages += pages.filter(isTextPage).length;
+        const numbers = pages.map((p) => p.page_number);
+        if (numbers.length) {
+            spans[b.title] = { first: Math.min(...numbers), last: Math.max(...numbers) };
+        }
     }
-    return n;
+    return { textPages, spans };
 }
 export async function analyzeSentiment(input) {
     const books = await resolveBooks(input.bookNames);
@@ -112,6 +169,7 @@ export async function analyzeSentiment(input) {
         tags: tagFilter,
         sections: sectionCoverage,
         sectionsByPageId: {},
+        bookPageSpans: {},
         groups: [],
         rows: [],
         coverage: { booksMatched: books.length, textPages: 0, scoredPages: 0, scores: 0, ...extra },
@@ -136,7 +194,7 @@ export async function analyzeSentiment(input) {
     if (resolvedSections.length) {
         rows = rows.filter((r) => sectionsForPage(resolvedSections, r.book_id, r.page_number).length > 0);
     }
-    const textPages = await countTextPages(books, input.pageStart, input.pageEnd);
+    const { textPages, spans: bookPageSpans } = await scanPages(books, input.pageStart, input.pageEnd);
     const scoredPages = new Set(rows.map((r) => r.page_id)).size;
     const methodCount = new Set(rows.map((r) => r.method_name)).size;
     if (rows.length === 0) {
@@ -184,7 +242,15 @@ export async function analyzeSentiment(input) {
                 }
                 else {
                     const mean = rs.reduce((s, r) => s + r.score, 0) / rs.length;
-                    groups.push({ key, dimension: dim.name, method: methodName, count: rs.length, mean: round3(mean) });
+                    groups.push({
+                        key,
+                        dimension: dim.name,
+                        method: methodName,
+                        count: rs.length,
+                        mean: round3(mean),
+                        stats: describe(rs),
+                        pageIds: [...new Set(rs.map((r) => r.page_id))],
+                    });
                 }
             }
         }
@@ -221,6 +287,7 @@ export async function analyzeSentiment(input) {
         tags: tagFilter,
         sections: sectionCoverage,
         sectionsByPageId,
+        bookPageSpans,
         groups,
         rows,
         coverage: { booksMatched: books.length, textPages, scoredPages, scores: rows.length },

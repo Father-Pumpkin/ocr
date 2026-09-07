@@ -211,7 +211,7 @@ export interface SectionCoverage {
   booksSkipped: number;
 }
 
-export type GroupBy = 'page' | 'book' | 'tag' | 'book_tag' | 'method' | 'section';
+export type GroupBy = 'page' | 'book' | 'tag' | 'book_tag' | 'method' | 'section' | 'book_section';
 export type Aggregate = 'series' | 'mean';
 
 export interface SeriesPoint {
@@ -221,13 +221,73 @@ export interface SeriesPoint {
   rationale: string | null;
 }
 
+/** Distribution of a group's scores. See core/sentiment-analysis for the why. */
+export interface GroupStats {
+  sd: number;
+  median: number;
+  q1: number;
+  q3: number;
+  min: number;
+  max: number;
+  /** Half-width of the 95% CI of the mean. */
+  ci95: number;
+  /** Distinct books behind the group — the real unit of replication. */
+  nBooks: number;
+  /** Share of scores pinned at 0 or 1; high = a near-binary instrument. */
+  railShare: number;
+}
+
 export interface AnalyzeGroup {
   key: string;
   dimension: string;
   method: string;
   count: number;
   mean?: number;
+  stats?: GroupStats;
+  /** Pages this group averaged over — the drill-down from a number to the text. */
+  pageIds?: number[];
   points?: SeriesPoint[];
+}
+
+/** Why one page scored what it did, term by term. */
+export interface MatchedTerm {
+  term: string;
+  value: number;
+  effective: number;
+  negated: boolean;
+  positions: number[];
+}
+
+export interface ScoreExplanation {
+  book: string;
+  pageNumber: number;
+  method: string;
+  methodKind: string;
+  dimension: string;
+  storedScore: number | null;
+  recomputedScore: number | null;
+  matched: MatchedTerm[];
+  tokenCount: number;
+  matchCount: number;
+  text: string;
+  rationale: string | null;
+  note: string | null;
+}
+
+/** One stored score, as returned in AnalyzeResult.rows. */
+export interface ScoreRow {
+  book_id: number;
+  book_title: string;
+  page_id: number;
+  page_number: number;
+  tags: string[];
+  dimension_id: number;
+  dimension_name: string;
+  method_id: number;
+  method_name: string;
+  score: number;
+  rationale: string | null;
+  model: string | null;
 }
 
 export interface AnalyzeResult {
@@ -240,6 +300,10 @@ export interface AnalyzeResult {
   sections: SectionCoverage[];
   /** page_id → the sections containing it. Empty unless sections were requested. */
   sectionsByPageId: Record<number, string[]>;
+  /** book title → its true first/last page, for a position-in-book axis. */
+  bookPageSpans: Record<string, { first: number; last: number }>;
+  /** Every score row that survived the filters — what the scatter view plots. */
+  rows: ScoreRow[];
   groups: AnalyzeGroup[];
   coverage: { booksMatched: number; textPages: number; scoredPages: number; scores: number };
   summary: string;
