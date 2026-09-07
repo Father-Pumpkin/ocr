@@ -109,14 +109,25 @@ function pagesCsv(rows: SentimentScoreDetail[], sectionsByPageId: Record<number,
 function summaryCsv(result: AnalyzeResult): string {
   // A 'series' analysis has no per-group mean stored, so derive one from its
   // points — the summary sheet should be usable whichever shape was requested.
-  const header = ['group', 'dimension', 'method', 'pages', 'mean_score'];
+  // Dispersion travels with the mean rather than being left for the reader to
+  // reconstruct: a mean of 0.5 from an all-or-nothing instrument and a mean of
+  // 0.5 from genuinely neutral pages are the same number and different findings.
+  const header = [
+    'group', 'dimension', 'method', 'pages', 'books', 'mean_score',
+    'median', 'sd', 'q1', 'q3', 'min', 'max', 'ci95_half_width', 'rail_share',
+  ];
   const body = result.groups.map((g) => {
     const mean =
       g.mean ??
       (g.points && g.points.length
         ? Math.round((g.points.reduce((s, p) => s + p.score, 0) / g.points.length) * 1000) / 1000
         : '');
-    return [g.key, g.dimension, g.method, g.count, mean];
+    const st = g.stats;
+    return [
+      g.key, g.dimension, g.method, g.count, st?.nBooks ?? '', mean,
+      st?.median ?? '', st?.sd ?? '', st?.q1 ?? '', st?.q3 ?? '',
+      st?.min ?? '', st?.max ?? '', st?.ci95 ?? '', st?.railShare ?? '',
+    ];
   });
   return csv([header, ...body]);
 }

@@ -66,6 +66,7 @@ const GROUP_BY_LABEL: Record<GroupBy, string> = {
   book_tag: 'By book × tag',
   method: 'By method',
   section: 'By section',
+  book_section: 'By book × section',
 };
 
 const EXPORT_LABEL: Record<ExportFormat, string> = {

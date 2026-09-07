@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getAnalysisOptions, estimateRun, startRun, getRun, listRuns, getResults, exportResults, createDimensionData, updateDimensionData, deleteDimensionData, inspectLexicon, uploadLexicon, deleteLexiconData, deleteMethodData, listSentimentBatches, checkSentimentBatch, prewarmLexicons, seedLexiconsFromDisk, AnalysisInputError, } from '../../core/analysis-service.js';
+import { GROUP_BY_VALUES, AGGREGATE_VALUES, } from '../../core/sentiment-analysis.js';
 import { requireMember } from '../middleware/require-auth.js';
 import { LIMITS } from '../middleware/rate-limit.js';
 import { getMethodByName } from '../../core/database.js';
@@ -87,11 +88,22 @@ function str(v) {
         return String(v[0] ?? '');
     return v === undefined || v === null ? '' : String(v);
 }
-/** A repeatable query param (`?books=a&books=b`) or a comma-separated list. */
+/**
+ * A repeatable query param (`?books=a&books=b`) or a comma-separated list.
+ *
+ * The object branch is not paranoia: qs returns `{0:'a',1:'b',…}` rather than an
+ * array once a key repeats past its arrayLimit, and stringifying that yields
+ * "[object Object]", which matches no book and produces an empty result with a
+ * 200. server.ts raises the limit; this makes the parse survive it regardless.
+ */
 function list(v) {
     if (v === undefined || v === null)
         return undefined;
-    const raw = Array.isArray(v) ? v.map(String) : String(v).split(',');
+    const raw = Array.isArray(v)
+        ? v.map(String)
+        : typeof v === 'object'
+            ? Object.values(v).map(String)
+            : String(v).split(',');
     const cleaned = raw.map((s) => s.trim()).filter(Boolean);
     return cleaned.length ? cleaned : undefined;
 }
@@ -102,7 +114,13 @@ function list(v) {
  * "everything up to the climax".
  */
 function sections(v) {
-    const raw = Array.isArray(v) ? v : v === undefined || v === null || v === '' ? [] : [v];
+    const raw = Array.isArray(v)
+        ? v
+        : v === undefined || v === null || v === ''
+            ? []
+            : typeof v === 'object'
+                ? Object.values(v)
+                : [v];
     const out = [];
     for (const entry of raw) {
         if (entry && typeof entry === 'object') {
@@ -130,10 +148,25 @@ function posInt(v) {
     const n = Number.parseInt(str(v), 10);
     return Number.isFinite(n) && n > 0 ? n : undefined;
 }
-/** Parse the scope + shape of an analysis read from the query string. */
+/**
+ * Parse the scope + shape of an analysis read from the query string.
+ *
+ * groupBy and aggregate are validated rather than cast. An unrecognised value
+ * used to reach the switch in groupKeys, fall through every case, and return
+ * undefined — which the caller then tried to iterate, producing a 500 with an
+ * internal message ("groupKeys is not a function or its return value is not
+ * iterable"). A typo in a URL is the caller's mistake and deserves a 400 saying
+ * so, not a stack-trace fragment.
+ */
 function analyzeInputFromQuery(req) {
     const groupBy = str(req.query.groupBy);
     const aggregate = str(req.query.aggregate);
+    if (groupBy && !GROUP_BY_VALUES.includes(groupBy)) {
+        throw new AnalysisInputError(`Unknown groupBy "${groupBy}". Use one of: ${GROUP_BY_VALUES.join(', ')}.`);
+    }
+    if (aggregate && !AGGREGATE_VALUES.includes(aggregate)) {
+        throw new AnalysisInputError(`Unknown aggregate "${aggregate}". Use one of: ${AGGREGATE_VALUES.join(', ')}.`);
+    }
     return {
         bookNames: list(req.query.books),
         dimensionNames: list(req.query.dimensions),
