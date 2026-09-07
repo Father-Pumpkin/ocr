@@ -209,9 +209,10 @@ function runRequestFromBody(body) {
     };
 }
 // GET /api/analysis/options — everything the run form needs, in one call
-analysisRouter.get('/analysis/options', async (_req, res) => {
+analysisRouter.get('/analysis/options', async (req, res) => {
     try {
-        res.json(await getAnalysisOptions());
+        const role = req.user?.role === 'member' ? 'member' : 'guest';
+        res.json(await getAnalysisOptions({ role }));
     }
     catch (err) {
         handleError(err, res);

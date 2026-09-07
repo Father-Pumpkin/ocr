@@ -89,21 +89,15 @@ export async function listStyles() {
         method: modelMethodName(model),
         model,
     }));
-    // Saved custom rubrics are first-class styles too — that's the point of saving one.
-    const customRubrics = methods
-        .filter((m) => m.kind === 'llm' && !!parseMethodConfig(m).prompt)
-        .map((m) => {
-        const cfg = parseMethodConfig(m);
-        return {
-            id: `method:${m.name}`,
-            family: 'llm',
-            label: m.name,
-            description: `Custom rubric on ${cfg.model ?? DEFAULT_MODEL}.`,
-            available: true,
-            method: m.name,
-            model: cfg.model ?? DEFAULT_MODEL,
-        };
-    });
+    // Saved rubrics are deliberately NOT listed here.
+    //
+    // The instrument list is the set of ways to measure — five dictionaries and
+    // the Claude models. A rubric is a way of describing a *construct*, and
+    // listing each saved one as another instrument grew the list every time
+    // someone wrote one, which is how two half-finished rubrics ended up
+    // presented as peers of AFINN. They remain reusable through the rubric box
+    // and remain attached to the scores they produced; they just do not enlarge
+    // the instrument vocabulary.
     const bagOfWords = lexicons.map((lex) => {
         const preset = presetFor(lex.name);
         const bound = methodForLexicon(methods, lex.id);
@@ -139,9 +133,21 @@ export async function listStyles() {
             ? `Not loaded — drop its file in the lexicons folder, or upload it here.`
             : `Not loaded — source unconfirmed, see the note.`,
     }));
-    return [...llm, ...customRubrics, ...bagOfWords, ...missing];
+    return [...llm, ...bagOfWords, ...missing];
 }
-export async function getAnalysisOptions() {
+/**
+ * Dimensions a guest may see.
+ *
+ * The set of constructs and their descriptions is the coding book — the design
+ * of the research, not its output — so the public tier gets only the shared
+ * polarity construct, which is what makes the dictionaries comparable and is
+ * defined by them rather than by anyone's rubric.
+ *
+ * (Per-user custom dimensions are the intended next step; they need ownership
+ * on the dimensions table, which does not exist yet.)
+ */
+const GUEST_DIMENSIONS = [POLARITY_DIMENSION];
+export async function getAnalysisOptions(opts = {}) {
     const [styles, dimensions, books, tags, lexicons, methods] = await Promise.all([
         listStyles(),
         getAllDimensions(),
@@ -150,9 +156,10 @@ export async function getAnalysisOptions() {
         getAllLexicons(),
         getAllMethods(),
     ]);
+    const visibleDimensions = opts.role === 'guest' ? dimensions.filter((d) => GUEST_DIMENSIONS.includes(d.name)) : dimensions;
     return {
         styles,
-        dimensions,
+        dimensions: visibleDimensions,
         books: books
             .filter((b) => b.status === 'complete')
             .map((b) => ({ title: b.title, pageCount: b.page_count }))

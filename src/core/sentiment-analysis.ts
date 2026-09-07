@@ -188,6 +188,16 @@ export interface AnalyzeResult {
    * instrument happened to score.
    */
   bookPageSpans: Record<string, { first: number; last: number }>;
+  /**
+   * section label → book title → the scenes that section covers in that book.
+   *
+   * With a section applied the arc runs over the section, not the book, so a
+   * position axis has to be measured against this rather than the book's full
+   * span. It comes from the server because section boundaries are resolved
+   * here; deriving them from the plotted points would make the axis depend on
+   * which scenes an instrument happened to score.
+   */
+  sectionRanges: Record<string, Record<string, { first: number; last: number }>>;
   groups: AnalyzeGroup[];
   /**
    * Every score row that survived the filters, ungrouped. The aggregation above
@@ -360,6 +370,7 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
     sections: sectionCoverage,
     sectionsByPageId: {},
     bookPageSpans: {},
+    sectionRanges: {},
     groups: [],
     rows: [],
     coverage: { booksMatched: books.length, textPages: 0, scoredPages: 0, scores: 0, ...extra },
@@ -412,6 +423,17 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
         `Score these scenes first (${textPages} text scene(s) in scope).`,
       { textPages, scoredPages: 0, scores: 0 },
     );
+  }
+
+  const titleById = new Map(books.map((b) => [b.id, b.title]));
+  const sectionRanges: Record<string, Record<string, { first: number; last: number }>> = {};
+  for (const resolved of resolvedSections) {
+    const perBook: Record<string, { first: number; last: number }> = {};
+    for (const [bookId, range] of resolved.ranges) {
+      const title = titleById.get(bookId);
+      if (title) perBook[title] = { first: range.start, last: range.end };
+    }
+    sectionRanges[resolved.label] = perBook;
   }
 
   const sectionsByPageId: Record<number, string[]> = {};
@@ -505,6 +527,7 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
     sections: sectionCoverage,
     sectionsByPageId,
     bookPageSpans,
+    sectionRanges,
     groups,
     rows,
     coverage: { booksMatched: books.length, textPages, scoredPages, scores: rows.length },

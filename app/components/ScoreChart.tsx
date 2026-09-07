@@ -527,7 +527,13 @@ function ArcChart({
   const lines = shown.map((g, i) => {
     const pts = [...g.points!].sort((a, b) => a.page_number - b.page_number);
     const book = pts[0].book_title;
-    const span = result.bookPageSpans?.[book];
+    // With exactly one section applied, position runs across that section
+    // rather than across the book — 0% is where the section starts. With
+    // several, the sections overlap on one axis and the book is the only
+    // denominator they share.
+    const sectionSpan =
+      result.sections?.length === 1 ? result.sectionRanges?.[result.sections[0].label]?.[book] : undefined;
+    const span = sectionSpan ?? result.bookPageSpans?.[book];
     const first = span?.first ?? pts[0].page_number;
     const last = span?.last ?? pts[pts.length - 1].page_number;
     const width = last - first || 1;
@@ -558,6 +564,14 @@ function ArcChart({
    * Dash pattern carries the book in that case, which keeps colour meaning one
    * thing and still separates four lines from two dictionaries.
    */
+  // With a section applied the arc covers only that stretch, so "position in
+  // book" is the wrong denominator to name even though the geometry is the same:
+  // 0% is the start of the section, not of the book.
+  // Only a single section gives the axis a well-defined 0–100%; several would
+  // each need their own, so the label stays honest about which it is showing.
+  const sectioned = result.sections?.length === 1;
+  const axisLabel = sectioned ? `Position in “${result.sections[0].label}”` : 'Position in book';
+
   const bookOrder = [...new Set(lines.map((l) => l.book))].sort();
   const DASHES = [undefined, '6 3', '2 3', '9 3 2 3', '1 3'];
   const dashFor = (book: string) =>
@@ -575,7 +589,10 @@ function ArcChart({
         <Chip active={smooth} onClick={() => setSmooth(!smooth)} title="3-scene rolling mean">
           {smooth ? 'Smoothed' : 'Raw scenes'}
         </Chip>
-        <span>x = position in book (%), anchored to the book’s own scene range · click a line to open its scenes</span>
+        <span>
+          x = {sectioned ? 'position through the section' : 'position in book'} (%) · click a line to open its
+          scenes
+        </span>
       </div>
 
       <div className="relative overflow-x-auto" onMouseLeave={tip.hide}>
@@ -602,7 +619,7 @@ function ArcChart({
             </text>
           ))}
           <text x={PAD.left + plotW / 2} y={VIEW_H - 4} textAnchor="middle" className="fill-[var(--muted)] text-[11px]">
-            Position in book
+            {axisLabel}
           </text>
 
           {lines.map((line) => (
