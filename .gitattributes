@@ -1,0 +1,26 @@
+# Line endings.
+#
+# The repository had drifted: 134 text files were stored with LF and 8 with
+# CRLF, so an ordinary edit to one of the CRLF files could rewrite every line of
+# it depending on the editor and on whether the author had core.autocrlf set.
+# That turns a two-line change into a thousand-line diff and makes `git blame`
+# useless for the file.
+#
+# `text=auto` puts the decision in the repository rather than in each machine's
+# git config: everything git recognises as text is stored with LF, and Windows
+# checkouts still get CRLF in the working tree via core.autocrlf.
+* text=auto
+
+# Files whose content must survive byte-for-byte.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.db   binary
+
+# Shell scripts are run by tools that reject CR, whatever the platform.
+*.sh text eol=lf

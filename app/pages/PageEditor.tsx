@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import type { BookRow, PageRow, OcrRun } from '../types';
 import { parseTags } from '../types';
@@ -35,9 +35,11 @@ function readAsDataURL(file: File): Promise<string> {
 }
 
 export function PageEditor() {
-  // Every mutation on this page is member-only. Guests read the page, its
-  // image, its tags and its OCR history; the controls that would change any
-  // of it aren't rendered, and the server refuses them regardless.
+  // The single-scene view is member-only. It exists to read and edit one scene
+  // closely — the transcript, the OCR history, the split and delete controls —
+  // and none of that is offered to the public tier, so the screen is refused
+  // outright rather than rendered mostly empty. The links into it are hidden
+  // too; this catches a typed or bookmarked URL.
   const isMember = useIsMember();
   const { name = '', n = '1' } = useParams();
   const pageNumber = Number.parseInt(n, 10);
@@ -331,6 +333,19 @@ export function PageEditor() {
 
   if (error) return <ErrorBox message={error} />;
   if (!pages) return <Loading label="Loading page…" />;
+  if (!isMember) {
+    return (
+      <div className="space-y-4">
+        <Link to={`/book/${encodeURIComponent(name)}`} className="text-sm text-accent hover:underline">
+          ‹ Back to {name}
+        </Link>
+        <EmptyState>
+          Individual scenes are limited to approved accounts. The book’s structure, its tags and every score
+          computed from it are on the book page.
+        </EmptyState>
+      </div>
+    );
+  }
   if (!page) return <EmptyState>Scene {pageNumber} not found in this book.</EmptyState>;
 
   const driveUrl = book ? `https://drive.google.com/file/d/${book.drive_file_id}/view` : null;
