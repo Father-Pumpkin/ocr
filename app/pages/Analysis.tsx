@@ -48,6 +48,9 @@ import { useIsMember } from '../lib/session';
  * read back at any time without re-scoring.
  */
 
+/** The construct every dictionary loads into — see core/lexicon-catalogue. */
+const POLARITY_DIMENSION = 'polarity';
+
 const FAMILY_LABEL: Record<StyleFamily, string> = {
   bag_of_words: 'Bag of words',
   llm: 'LLM',
@@ -186,32 +189,47 @@ export function Analysis() {
   useEffect(() => {
     reloadOptions()
       .then((opts) => {
-        // Guests can't run anything, so start them on a bag-of-words style —
-        // those are the ones with scores already computed to look at.
-        const first = isMember
-          ? opts.styles.find((s) => s.family === 'llm' && s.available)
-          : opts.styles.find((s) => s.family === 'bag_of_words' && s.available);
+        // Everyone starts on a dictionary, not on Claude. Polarity is the
+        // opening dimension and the dictionaries are what cover it — Sonnet has
+        // no polarity scores at all, so an LLM default would open the panel
+        // empty for the same reason it used to open empty on emotional_tone.
+        // It is also the free instrument, which is the right thing to land on
+        // before anyone has decided to spend.
+        const first = opts.styles.find((s) => s.family === 'bag_of_words' && s.available);
         setStyleId((prev) => prev || first?.id || '');
-        if (!isMember && first?.family === 'bag_of_words') setFamily('bag_of_words');
-        // Default to a dimension the starting instrument can actually measure.
-        // Taking dimensions[0] blindly lands a bag-of-words style on an LLM-only
-        // construct, where the run scores nothing and the results panel is empty
-        // — which reads as a broken page rather than a mismatched selection.
+        if (first?.family === 'bag_of_words') setFamily('bag_of_words');
+        // Open on polarity. It is the shared construct every dictionary loads
+        // into, so it is the one dimension that has scores from every
+        // instrument and the only one where a comparison is available without
+        // spending anything.
+        //
+        // The fallbacks behind it still matter: taking dimensions[0] blindly
+        // lands a bag-of-words style on an LLM-only construct, where the run
+        // scores nothing and the panel is empty — which reads as a broken page
+        // rather than a mismatched selection.
+        const has = (name: string) => opts.dimensions.some((d) => d.name === name);
         const covered = first?.lexicon?.dimensions ?? [];
-        const fallback = opts.dimensions[0]?.name;
         const start =
-          covered.find((name) => opts.dimensions.some((d) => d.name === name)) ?? fallback;
+          (has(POLARITY_DIMENSION) ? POLARITY_DIMENSION : undefined) ??
+          covered.find(has) ??
+          opts.dimensions[0]?.name;
         setDimensions((prev) => (prev.length ? prev : start ? [start] : []));
       })
       .catch((e) => setLoadError(e instanceof ApiError ? e.message : String(e)));
   }, [reloadOptions, isMember]);
 
-  // A guest has no Run button, so nothing would ever populate the results panel.
-  // Show them whatever is already scored for the current selection.
+  // Show whatever is already scored, without waiting for anyone to run
+  // something first.
+  //
+  // This used to be guests only, on the reasoning that a member would arrive
+  // via a run. But scores outlive the session that produced them: after two
+  // batches finished, their 2,028 scores were in the database and the panel was
+  // still not on screen, because nothing had been run *this visit*. Reading is
+  // free, so there is no reason to make a member run a job to see it.
   useEffect(() => {
-    if (!isMember && options && !results) void loadResults();
+    if (options && !results) void loadResults();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMember, options]);
+  }, [options]);
 
   const style = useMemo(
     () => options?.styles.find((s) => s.id === styleId) ?? null,
