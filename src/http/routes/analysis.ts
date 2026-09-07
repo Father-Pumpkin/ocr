@@ -17,6 +17,7 @@ import {
   listSentimentBatches,
   checkSentimentBatch,
   prewarmLexicons,
+  saveRubricMethod,
   seedLexiconsFromDisk,
   AnalysisInputError,
   type ExportFormat,
@@ -508,6 +509,22 @@ analysisRouter.delete('/analysis/lexicons/:name', requireMember, async (req, res
 });
 
 // DELETE /api/analysis/methods/:name — drop a saved rubric and the scores it made
+// POST /api/analysis/methods — save a custom rubric as a reusable instrument.
+// Member-only: it writes to the shared instrument set.
+analysisRouter.post('/analysis/methods', requireMember, async (req, res) => {
+  try {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const method = await saveRubricMethod({
+      name: str(b.name),
+      rubric: str(b.rubric),
+      model: str(b.model) || undefined,
+    });
+    res.status(201).json({ method });
+  } catch (err) {
+    handleError(err, res);
+  }
+});
+
 analysisRouter.delete('/analysis/methods/:name', requireMember, async (req, res) => {
   try {
     await deleteMethodData(str(req.params.name));

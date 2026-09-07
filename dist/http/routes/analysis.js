@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getAnalysisOptions, estimateRun, startRun, getRun, listRuns, getResults, exportResults, createDimensionData, updateDimensionData, deleteDimensionData, inspectLexicon, uploadLexicon, deleteLexiconData, deleteMethodData, listSentimentBatches, checkSentimentBatch, prewarmLexicons, seedLexiconsFromDisk, AnalysisInputError, } from '../../core/analysis-service.js';
+import { getAnalysisOptions, estimateRun, startRun, getRun, listRuns, getResults, exportResults, createDimensionData, updateDimensionData, deleteDimensionData, inspectLexicon, uploadLexicon, deleteLexiconData, deleteMethodData, listSentimentBatches, checkSentimentBatch, prewarmLexicons, saveRubricMethod, seedLexiconsFromDisk, AnalysisInputError, } from '../../core/analysis-service.js';
 import { GROUP_BY_VALUES, AGGREGATE_VALUES, } from '../../core/sentiment-analysis.js';
 import { requireMember } from '../middleware/require-auth.js';
 import { LIMITS } from '../middleware/rate-limit.js';
@@ -445,6 +445,22 @@ analysisRouter.delete('/analysis/lexicons/:name', requireMember, async (req, res
     }
 });
 // DELETE /api/analysis/methods/:name — drop a saved rubric and the scores it made
+// POST /api/analysis/methods — save a custom rubric as a reusable instrument.
+// Member-only: it writes to the shared instrument set.
+analysisRouter.post('/analysis/methods', requireMember, async (req, res) => {
+    try {
+        const b = (req.body ?? {});
+        const method = await saveRubricMethod({
+            name: str(b.name),
+            rubric: str(b.rubric),
+            model: str(b.model) || undefined,
+        });
+        res.status(201).json({ method });
+    }
+    catch (err) {
+        handleError(err, res);
+    }
+});
 analysisRouter.delete('/analysis/methods/:name', requireMember, async (req, res) => {
     try {
         await deleteMethodData(str(req.params.name));

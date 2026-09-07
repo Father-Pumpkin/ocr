@@ -90,6 +90,8 @@ export function Analysis() {
   const [rubric, setRubric] = useState('');
   const [rubricName, setRubricName] = useState('');
   const [showRubric, setShowRubric] = useState(false);
+  const [savingRubric, setSavingRubric] = useState(false);
+  const [rubricSaved, setRubricSaved] = useState<string | null>(null);
   const [dimensions, setDimensions] = useState<string[]>([]);
   // Empty = every transcribed book, matching the backend's own default.
   const [books, setBooks] = useState<string[]>(() => params.getAll('book'));
@@ -299,6 +301,24 @@ export function Analysis() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [books, dimensions, style?.method, methodsKey, tags, sectionKey, pageStart, pageEnd, groupBy, aggregate],
   );
+
+  const onSaveRubric = async () => {
+    setSavingRubric(true);
+    setRunError(null);
+    try {
+      const { method } = await api.saveRubricMethod({
+        name: rubricName.trim(),
+        rubric: rubric.trim(),
+        model: style?.model,
+      });
+      setRubricSaved(method.name);
+      await reloadOptions();
+    } catch (e) {
+      setRunError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setSavingRubric(false);
+    }
+  };
 
   const loadResults = useCallback(async () => {
     setResultsBusy(true);
@@ -525,24 +545,45 @@ export function Analysis() {
                   <Label>Rubric name</Label>
                   <input
                     value={rubricName}
-                    onChange={(e) => setRubricName(e.target.value)}
+                    onChange={(e) => {
+                      setRubricName(e.target.value);
+                      setRubricSaved(null);
+                    }}
                     placeholder="e.g. fear-strict"
                     className="mt-1.5 h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
                   />
-                  <span className="mt-1 block text-xs text-muted">
-                    Saved as a reusable method, so this run can be repeated and compared later.
-                  </span>
                 </label>
                 <label className="block">
                   <Label>Rubric</Label>
                   <textarea
                     value={rubric}
-                    onChange={(e) => setRubric(e.target.value)}
+                    onChange={(e) => {
+                      setRubric(e.target.value);
+                      setRubricSaved(null);
+                    }}
                     rows={4}
                     placeholder="What should Claude look for? Be specific about what makes a page score high vs low."
                     className="mt-1.5 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
                   />
                 </label>
+                {/* Saving is a deliberate act. This used to happen as a side
+                    effect of the form re-estimating, so every intermediate
+                    spelling of a name left a saved method behind. */}
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={onSaveRubric}
+                    disabled={savingRubric || !rubricName.trim() || !rubric.trim()}
+                  >
+                    {savingRubric ? 'Saving…' : 'Save as a reusable method'}
+                  </Button>
+                  <span className="text-xs text-muted">
+                    {rubricSaved
+                      ? `Saved as “${rubricSaved}”. It will appear in the style list and the instrument picker.`
+                      : 'Optional — running also saves it. Nothing is stored until you save or run.'}
+                  </span>
+                </div>
               </div>
             )}
           </div>

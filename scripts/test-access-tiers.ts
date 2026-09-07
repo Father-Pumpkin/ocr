@@ -100,6 +100,7 @@ const ROUTES: Route[] = [
   { method: 'POST', path: '/api/analysis/lexicons/preview', guest: 'deny', body: { content: 'a,1', fileName: 'x.csv' } },
   { method: 'POST', path: '/api/analysis/lexicons', guest: 'deny', body: { name: 'x' } },
   { method: 'DELETE', path: '/api/analysis/lexicons/afinn', guest: 'deny' },
+  { method: 'POST', path: '/api/analysis/methods', guest: 'deny', body: { name: 'x', rubric: 'y' } },
   { method: 'DELETE', path: '/api/analysis/methods/lex-afinn', guest: 'deny' },
   { method: 'POST', path: '/api/analysis/dimensions', guest: 'deny', body: { name: 'x', description: 'y' } },
   { method: 'PATCH', path: '/api/analysis/dimensions/polarity', guest: 'deny', body: { description: 'z' } },

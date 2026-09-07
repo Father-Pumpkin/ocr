@@ -324,6 +324,21 @@ export interface RunRequest extends RunScope {
  * makes "Claude Sonnet vs AFINN" comparable across sessions.
  */
 export async function resolveMethodForRun(req: RunRequest): Promise<MethodRow> {
+  const m = await resolveMethod(req, true);
+  if (!m) throw new AnalysisInputError('Could not resolve a scoring method for this run.');
+  return m;
+}
+
+/**
+ * Resolve a style to its method row.
+ *
+ * `create` is false for estimates. Sizing a run must not persist anything, and
+ * this function is the only thing standing between "the form recalculated" and
+ * "a method was saved": the form estimates on every edit, so with creation on,
+ * typing a rubric name left a saved method behind for each intermediate
+ * spelling. Only an explicit save or an actual run creates one now.
+ */
+async function resolveMethod(req: RunRequest, create: boolean): Promise<MethodRow | null> {
   const [prefix, rest] = splitStyleId(req.style);
 
   if (prefix === 'catalogue') {
@@ -342,6 +357,7 @@ export async function resolveMethodForRun(req: RunRequest): Promise<MethodRow> {
   if (prefix === 'lexicon') {
     const lex = await getLexiconByName(rest);
     if (!lex) throw new AnalysisInputError(`Lexicon "${rest}" not found. Load it first.`);
+    if (!create) return (await getMethodByName(lexiconMethodName(lex.name))) ?? null;
     return ensureLexiconMethod(lex.id, lex.name, req.negation ?? true);
   }
 
@@ -366,10 +382,12 @@ export async function resolveMethodForRun(req: RunRequest): Promise<MethodRow> {
         }
         return existing;
       }
-      return createMethod(name, 'llm', JSON.stringify({ model, prompt: rubric }));
+      return create ? createMethod(name, 'llm', JSON.stringify({ model, prompt: rubric })) : null;
     }
     const name = modelMethodName(model);
-    return (await getMethodByName(name)) ?? createMethod(name, 'llm', JSON.stringify({ model }));
+    const existing = await getMethodByName(name);
+    if (existing) return existing;
+    return create ? createMethod(name, 'llm', JSON.stringify({ model })) : null;
   }
 
   throw new AnalysisInputError(`Unrecognised analysis style "${req.style}".`);
@@ -402,10 +420,56 @@ function toScoreInput(req: RunRequest, method: MethodRow, mode?: RunMode): Score
   };
 }
 
+/**
+ * Save a custom rubric as a reusable method, deliberately.
+ *
+ * Creation used to be a side effect of resolving a style, which the estimate
+ * did on every form change. This is the explicit path: it validates, refuses to
+ * quietly redefine a name that already means something else, and is the only
+ * thing besides an actual run that writes a method.
+ */
+export async function saveRubricMethod(opts: {
+  name: string;
+  rubric: string;
+  model?: string;
+}): Promise<MethodRow> {
+  const name = opts.name.trim();
+  const rubric = opts.rubric.trim();
+  if (!name) throw new AnalysisInputError('Give the rubric a name so it can be reused and compared later.');
+  if (!rubric) throw new AnalysisInputError('The rubric cannot be empty.');
+
+  const model = opts.model?.trim() || DEFAULT_MODEL;
+  if (!AVAILABLE_MODELS.includes(model as (typeof AVAILABLE_MODELS)[number])) {
+    throw new AnalysisInputError(`Unknown model "${model}".`);
+  }
+
+  const existing = await getMethodByName(name);
+  if (existing) {
+    const cfg = parseMethodConfig(existing);
+    if (cfg.prompt === rubric && cfg.model === model) return existing;
+    throw new AnalysisInputError(
+      `A different method named "${name}" already exists. Choose another name, or delete the existing one.`,
+    );
+  }
+  return createMethod(name, 'llm', JSON.stringify({ model, prompt: rubric }));
+}
+
 /** How many pages/calls a run would take, and which way it should go. */
 export async function estimateRun(req: RunRequest): Promise<ScoringEstimate & { style: string }> {
-  const method = await resolveMethodForRun(req);
-  const estimate = await estimateScoring(toScoreInput(req, method));
+  const method = await resolveMethod(req, false);
+  if (method) {
+    const estimate = await estimateScoring(toScoreInput(req, method));
+    return { ...estimate, style: req.style };
+  }
+  // Nothing saved under this style yet — a new custom rubric, or the first use
+  // of a model. Size it as an instrument that has scored nothing, and leave the
+  // creating to the run itself.
+  const [prefix] = splitStyleId(req.style);
+  const name = req.rubricName?.trim() || req.style;
+  const estimate = await estimateScoring({
+    ...toScoreInput({ ...req }, { id: -1, name, kind: 'llm', config: '{}', created_by: null, created_at: '' }),
+    unsavedMethodKind: prefix === 'lexicon' ? 'lexicon' : 'llm',
+  });
   return { ...estimate, style: req.style };
 }
 

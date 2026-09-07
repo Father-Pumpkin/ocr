@@ -128,18 +128,22 @@ export async function estimateScoring(input) {
         maxBatchItems: batchCap,
         problem,
     });
-    if (!method)
+    if (!method && !input.unsavedMethodKind)
         return shell(`Scoring method "${methodName}" not found.`);
     if (books.length === 0)
         return shell('No matching transcribed books in scope.');
     if (dims.length === 0)
         return shell('No sentiment dimensions selected.');
-    const { items, skipped } = await collectItems(books, dims, input.pageStart, input.pageEnd, !!input.overwrite, method.id, input.tags, input.sections);
-    const requiredCalls = method.kind === 'lexicon' ? 0 : items.length;
-    const recommendedMode = method.kind === 'lexicon' || items.length <= BATCH_RECOMMEND_THRESHOLD ? 'standard' : 'batch';
+    const kind = method?.kind ?? input.unsavedMethodKind;
+    // -1 matches no stored score, which is the truth for a method that does not
+    // exist yet: nothing has been scored with it.
+    const methodId = method?.id ?? -1;
+    const { items, skipped } = await collectItems(books, dims, input.pageStart, input.pageEnd, !!input.overwrite, methodId, input.tags, input.sections);
+    const requiredCalls = kind === 'lexicon' ? 0 : items.length;
+    const recommendedMode = kind === 'lexicon' || items.length <= BATCH_RECOMMEND_THRESHOLD ? 'standard' : 'batch';
     return {
         ...shell(null),
-        kind: method.kind,
+        kind,
         pairs: items.length,
         alreadyScored: skipped,
         requiredCalls,
