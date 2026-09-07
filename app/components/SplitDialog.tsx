@@ -49,9 +49,9 @@ export function SplitDialog({
         className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl border border-border bg-surface p-6 shadow-card"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="font-serif text-xl font-semibold text-ink">Split page across the gutter</h2>
+        <h2 className="font-serif text-xl font-semibold text-ink">Split scene across the gutter</h2>
         <p className="mt-1 text-sm text-muted">
-          Page {pageNumber} becomes two pages — everything left of the line, then everything right of it. Drag the split
+          Scene {pageNumber} becomes two scenes — everything left of the line, then everything right of it. Drag the split
           to the gutter, then edit each side's text.
         </p>
 
@@ -78,7 +78,7 @@ export function SplitDialog({
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div>
-            <Label>Left page</Label>
+            <Label>Left scene</Label>
             <textarea
               value={leftText}
               onChange={(e) => setLeftText(e.target.value)}
@@ -87,7 +87,7 @@ export function SplitDialog({
             />
           </div>
           <div>
-            <Label>Right page</Label>
+            <Label>Right scene</Label>
             <textarea
               value={rightText}
               onChange={(e) => setRightText(e.target.value)}
@@ -108,7 +108,7 @@ export function SplitDialog({
             Cancel
           </Button>
           <Button variant="primary" onClick={onSplit} disabled={busy}>
-            {busy ? 'Splitting…' : 'Split into two pages'}
+            {busy ? 'Splitting…' : 'Split into two scenes'}
           </Button>
         </div>
       </div>

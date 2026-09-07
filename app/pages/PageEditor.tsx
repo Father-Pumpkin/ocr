@@ -294,7 +294,7 @@ export function PageEditor() {
   }
 
   async function onDelete() {
-    if (!window.confirm(`Delete page ${pageNumber}? This renumbers the following pages and cannot be undone.`)) {
+    if (!window.confirm(`Delete scene ${pageNumber}? This renumbers the following scenes and cannot be undone.`)) {
       return;
     }
     setDeleting(true);
@@ -331,7 +331,7 @@ export function PageEditor() {
 
   if (error) return <ErrorBox message={error} />;
   if (!pages) return <Loading label="Loading page…" />;
-  if (!page) return <EmptyState>Page {pageNumber} not found in this book.</EmptyState>;
+  if (!page) return <EmptyState>Scene {pageNumber} not found in this book.</EmptyState>;
 
   const driveUrl = book ? `https://drive.google.com/file/d/${book.drive_file_id}/view` : null;
   const imageUrl = `${api.pageImageUrl(name, pageNumber)}?v=${imageVersion}`;
@@ -353,7 +353,7 @@ export function PageEditor() {
             {book?.title ?? name}
           </button>
           <span className="text-faint">/</span>
-          <span className="text-ink">Page {pageNumber}</span>
+          <span className="text-ink">Scene {pageNumber}</span>
         </nav>
         <div className="flex items-center gap-2">
           {nextFlagged != null && nextFlagged !== pageNumber && (
@@ -630,7 +630,7 @@ export function PageEditor() {
               size="sm"
               onClick={onToggleIllustration}
               disabled={busy}
-              title={isIllustration ? 'Treat this as a normal text page' : 'Mark this page as illustration-only'}
+              title={isIllustration ? 'Treat this as a normal text scene' : 'Mark this scene as illustration-only'}
             >
               <Picture className="h-4 w-4" />
               {togglingIllo ? '…' : isIllustration ? 'Unmark illustration' : 'Mark illustration'}
@@ -668,11 +668,11 @@ export function PageEditor() {
               title="Split this spread into two pages at the gutter"
             >
               <Columns className="h-4 w-4" />
-              Split page
+              Split scene
             </Button>
             <Button variant="danger" size="sm" onClick={onDelete} disabled={busy}>
               <Trash className="h-4 w-4" />
-              {deleting ? 'Deleting…' : 'Delete page'}
+              {deleting ? 'Deleting…' : 'Delete scene'}
             </Button>
           </div>
             </>

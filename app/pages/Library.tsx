@@ -137,7 +137,7 @@ function BookCard({ book }: { book: BookRow }) {
         )}
         {book.ocr_quality === 'bad' && (
           <span className="absolute left-2 top-2">
-            <Badge tone="danger" title={book.ocr_quality_note ?? 'Most pages look garbled'}>
+            <Badge tone="danger" title={book.ocr_quality_note ?? 'Most scenes look garbled'}>
               <Alert className="h-3 w-3" />
               redo
             </Badge>
@@ -145,7 +145,7 @@ function BookCard({ book }: { book: BookRow }) {
         )}
         {book.ocr_quality === 'suspect' && (
           <span className="absolute left-2 top-2">
-            <Badge tone="warn" title={book.ocr_quality_note ?? 'Some pages look suspect'}>
+            <Badge tone="warn" title={book.ocr_quality_note ?? 'Some scenes look suspect'}>
               <Alert className="h-3 w-3" />
               suspect
             </Badge>
@@ -155,7 +155,7 @@ function BookCard({ book }: { book: BookRow }) {
       <div className="mt-2.5 px-0.5">
         <h2 className="line-clamp-2 font-serif text-[0.95rem] font-medium leading-snug text-ink">{book.title}</h2>
         <p className="mt-1 flex items-center gap-2 text-xs text-muted">
-          {book.page_count != null && <span>{book.page_count} pages</span>}
+          {book.page_count != null && <span>{book.page_count} scenes</span>}
           {book.status !== 'complete' && <StatusBadge status={book.status} />}
         </p>
       </div>

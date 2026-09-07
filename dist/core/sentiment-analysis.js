@@ -51,6 +51,20 @@ function describe(rows) {
     };
 }
 const round3 = (x) => Math.round(x * 1000) / 1000;
+/**
+ * How a grouping reads in prose. The parameter values stay as they are — they
+ * are the API contract, and MCP callers pass them literally — but a sentence
+ * shown to a person should use the words the app uses everywhere else.
+ */
+const GROUP_BY_PROSE = {
+    page: 'scene',
+    book: 'book',
+    tag: 'tag',
+    book_tag: 'book × tag',
+    method: 'method',
+    section: 'section',
+    book_section: 'book × section',
+};
 async function resolveBooks(names) {
     const all = await getAllBooks();
     if (!names || names.length === 0)
@@ -212,13 +226,13 @@ export async function analyzeSentiment(input) {
             const which = deadSections.length === 1
                 ? `the section “${deadSections[0].label}”`
                 : `none of the ${deadSections.length} sections`;
-            return shell(`No pages are in scope — ${which} matched any of the ${books.length} selected book(s), ` +
+            return shell(`No scenes are in scope — ${which} matched any of the ${books.length} selected book(s), ` +
                 `because they do not carry both marker tags. Only some books here have narrative markers such as ` +
-                `“climax”. Pick a section whose tags these books do have, or clear the section to use every page.`, { textPages, scoredPages: 0, scores: 0 });
+                `“climax”. Pick a section whose tags these books do have, or clear the section to use every scene.`, { textPages, scoredPages: 0, scores: 0 });
         }
         return shell(`No sentiment scores found yet for ${describeScope(books, dims, tagFilter)}` +
             `${sectionCoverage.length ? ' within the selected section(s)' : ''}. ` +
-            `Score these pages first (${textPages} text page(s) in scope).`, { textPages, scoredPages: 0, scores: 0 });
+            `Score these scenes first (${textPages} text scene(s) in scope).`, { textPages, scoredPages: 0, scores: 0 });
     }
     const sectionsByPageId = {};
     if (resolvedSections.length) {
@@ -285,7 +299,7 @@ export async function analyzeSentiment(input) {
         keyRank(a.key) - keyRank(b.key) ||
         a.key.localeCompare(b.key));
     const gap = textPages > scoredPages
-        ? ` Note: only ${scoredPages}/${textPages} in-scope text page(s) are scored — run score_pages to fill the rest.`
+        ? ` Note: only ${scoredPages}/${textPages} in-scope text scene(s) are scored — score the rest to fill them in.`
         : '';
     // A section that resolved in only a handful of books is the likeliest reason a
     // result looks thinner than expected, so it is stated rather than left to be
@@ -296,7 +310,7 @@ export async function analyzeSentiment(input) {
             .join('; ')}.`
         : '';
     const summary = `${groups.length} group(s) over ${dims.length} dimension(s) and ${methodCount} method(s) for ` +
-        `${describeScope(books, dims, tagFilter)}, grouped by ${groupBy} as ${aggregate} (${rows.length} score(s)).${gap}${sectionNote}`;
+        `${describeScope(books, dims, tagFilter)}, grouped by ${GROUP_BY_PROSE[groupBy]} as ${aggregate} (${rows.length} score(s)).${gap}${sectionNote}`;
     return {
         groupBy,
         aggregate,

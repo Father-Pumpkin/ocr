@@ -188,7 +188,7 @@ export function BookDetail() {
                   size="sm"
                   onClick={onCheck}
                   disabled={checking}
-                  title="Run a cheap Sonnet proofreader over every page"
+                  title="Run a cheap Sonnet proofreader over every scene"
                 >
                   <ShieldCheck className="h-4 w-4" />
                   {checking ? 'Checking…' : 'Check OCR quality'}
@@ -208,14 +208,14 @@ export function BookDetail() {
 
       {book?.ocr_quality === 'bad' && (
         <Banner tone="danger">
-          <strong className="font-semibold">Most pages look garbled.</strong> {book.ocr_quality_note}. You're likely
-          better off re-transcribing the whole book on a stronger model than fixing it page-by-page.
+          <strong className="font-semibold">Most scenes look garbled.</strong> {book.ocr_quality_note}. You're likely
+          better off re-transcribing the whole book on a stronger model than fixing it scene-by-scene.
         </Banner>
       )}
       {book?.ocr_quality === 'suspect' && (
         <Banner tone="warn">
-          <strong className="font-semibold">Some pages look suspect.</strong> {book.ocr_quality_note}. Open the flagged
-          pages and re-transcribe them with a stronger model.
+          <strong className="font-semibold">Some scenes look suspect.</strong> {book.ocr_quality_note}. Open the flagged
+          scenes and re-transcribe them with a stronger model.
         </Banner>
       )}
 
@@ -223,7 +223,7 @@ export function BookDetail() {
       {notFound && (
         <EmptyState>This book hasn't been transcribed yet. Run a transcription from Claude Desktop, then refresh.</EmptyState>
       )}
-      {!error && !notFound && !pages && <Loading label="Loading pages…" />}
+      {!error && !notFound && !pages && <Loading label="Loading scenes…" />}
       {pages && pages.length === 0 && <EmptyState>No pages stored for this book.</EmptyState>}
 
       {pages && pages.length > 0 && (

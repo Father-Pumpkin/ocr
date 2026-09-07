@@ -55,12 +55,12 @@ const FAMILY_LABEL: Record<StyleFamily, string> = {
 
 const FAMILY_BLURB: Record<StyleFamily, string> = {
   bag_of_words:
-    'Every word on the page is looked up in a sentiment dictionary and the matches are averaged. Local, instant, free, and perfectly reproducible.',
-  llm: 'Claude reads each page and scores it against the dimension\'s rubric. Handles context, irony and negation that a word list misses — one API call per page.',
+    'Every word in the scene is looked up in a sentiment dictionary and the matches are averaged. Local, instant, free, and perfectly reproducible.',
+  llm: 'Claude reads each scene and scores it against the dimension\'s rubric. Handles context, irony and negation that a word list misses — one API call per page.',
 };
 
 const GROUP_BY_LABEL: Record<GroupBy, string> = {
-  page: 'Page by page',
+  page: 'Scene by scene',
   book: 'By book',
   tag: 'By tag',
   book_tag: 'By book × tag',
@@ -70,7 +70,7 @@ const GROUP_BY_LABEL: Record<GroupBy, string> = {
 };
 
 const EXPORT_LABEL: Record<ExportFormat, string> = {
-  'pages.csv': 'Per-page CSV',
+  'pages.csv': 'Per-scene CSV',
   'summary.csv': 'Summary CSV',
   json: 'JSON',
 };
@@ -130,7 +130,7 @@ export function Analysis() {
   /**
    * Which chart is on screen. It lives here rather than inside the chart because
    * each view needs a differently shaped query, and making the user discover
-   * that — set Show to "Every page", tick "Compare all instruments" — meant the
+   * that — set Show to "Every scene", tick "Compare all instruments" — meant the
    * arc and the agreement plot were effectively unreachable. Picking the view
    * now asks for the data that view needs.
    */
@@ -461,7 +461,7 @@ export function Analysis() {
         <h1 className="font-serif text-3xl font-semibold tracking-tight text-ink">Sentiment analysis</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
           {isMember
-            ? 'Score pages on a construct, then download the results. Pick how to measure, what to measure, and what to run it over.'
+            ? 'Score scenes on a construct, then download the results. Pick how to measure, what to measure, and what to run it over.'
             : 'Explore the sentiment scores already computed for this library. Choose an instrument, a construct and a slice of the corpus, compare instruments against each other, and download the result.'}
         </p>
       </header>
@@ -562,7 +562,7 @@ export function Analysis() {
                       setRubricSaved(null);
                     }}
                     rows={4}
-                    placeholder="What should Claude look for? Be specific about what makes a page score high vs low."
+                    placeholder="What should Claude look for? Be specific about what makes a scene score high vs low."
                     className="mt-1.5 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
                   />
                 </label>
@@ -591,7 +591,7 @@ export function Analysis() {
       </Section>
 
       {/* ---- Step 2: dimensions ---- */}
-      <Section step={2} title="What to measure" hint="One score per page, per dimension.">
+      <Section step={2} title="What to measure" hint="One score per scene, per dimension.">
         {options.dimensions.length === 0 ? (
           <p className="text-sm text-muted">No dimensions defined yet — create one to get started.</p>
         ) : (
@@ -685,7 +685,7 @@ export function Analysis() {
 
           <div className="space-y-4">
             <div>
-              <Label>Page range</Label>
+              <Label>Scene range</Label>
               <div className="mt-1.5 flex items-center gap-2">
                 <input
                   value={pageStart}
@@ -702,11 +702,11 @@ export function Analysis() {
                   inputMode="numeric"
                   className="h-9 w-24 rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
                 />
-                <span className="text-xs text-muted">Leave blank for every page.</span>
+                <span className="text-xs text-muted">Leave blank for every scene.</span>
               </div>
             </div>
             <div>
-              <Label>Tagged pages only</Label>
+              <Label>Tagged scenes only</Label>
               <div className="mt-1.5">
                 <TagSelect value={tags} onChange={setTags} suggestions={options.tags} placeholder="Any tag…" />
               </div>
@@ -792,7 +792,7 @@ export function Analysis() {
             </div>
             <p className="mt-2 flex items-center gap-2 text-sm text-muted">
               <Spinner className="h-3.5 w-3.5" />
-              Scored {run.done} of {run.total} page–dimension pairs…
+              Scored {run.done} of {run.total} scene–dimension pairs…
             </p>
           </div>
         )}
@@ -927,9 +927,9 @@ function StyleCard({
 }
 
 /**
- * Sections — page ranges bounded by structural tags, resolved per book.
+ * Sections — scene ranges bounded by structural tags, resolved per book.
  *
- * A page range can't ask this question: page 6 is the first page of content in
+ * A scene range can't ask this question: page 6 is the first page of content in
  * one book and page 4 in another, so a fixed range compares different parts of
  * different books. Naming the boundaries by tag instead makes "the final act"
  * mean the same thing everywhere, and several sections can be defined at once so
@@ -1066,7 +1066,7 @@ function EstimateLine({
   if (estimate.pairs === 0) {
     return (
       <p className="text-sm text-muted">
-        Nothing new to score — all {estimate.alreadyScored} page–dimension pair(s) in this scope already have a{' '}
+        Nothing new to score — all {estimate.alreadyScored} scene–dimension pair(s) in this scope already have a{' '}
         <strong className="text-ink">{estimate.method}</strong> score. Tick “re-score” to run them again.
       </p>
     );
@@ -1084,7 +1084,7 @@ function EstimateLine({
 
   return (
     <p className={`text-sm ${capExceeded ? 'text-danger' : 'text-muted'}`}>
-      {estimate.pairs.toLocaleString()} page–dimension pair{estimate.pairs === 1 ? '' : 's'} across{' '}
+      {estimate.pairs.toLocaleString()} scene–dimension pair{estimate.pairs === 1 ? '' : 's'} across{' '}
       {estimate.books} book{estimate.books === 1 ? '' : 's'} — {cost}.
       {estimate.alreadyScored > 0 && ` ${estimate.alreadyScored.toLocaleString()} already scored, skipped.`}
       {capExceeded &&
@@ -1378,7 +1378,7 @@ function ResultsPanel({
               >
                 <option value="">Automatic</option>
                 <option value="mean">Group averages</option>
-                <option value="series">Every page</option>
+                <option value="series">Every scene</option>
               </select>
             </label>
             <InstrumentPicker
@@ -1463,7 +1463,7 @@ function ResultsPanel({
           <p className="mt-3 text-xs text-muted">
             {results.coverage.scores.toLocaleString()} score
             {results.coverage.scores === 1 ? '' : 's'} over {results.coverage.scoredPages.toLocaleString()} of{' '}
-            {results.coverage.textPages.toLocaleString()} text pages in scope.
+            {results.coverage.textPages.toLocaleString()} text scenes in scope.
           </p>
         </>
       )}
@@ -1518,7 +1518,7 @@ function NewDimensionForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={3}
-          placeholder="What makes a page score high vs low? This becomes the rubric Claude scores against."
+          placeholder="What makes a scene score high vs low? This becomes the rubric Claude scores against."
           className="mt-1.5 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
         />
       </label>

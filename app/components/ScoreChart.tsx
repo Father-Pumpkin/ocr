@@ -227,13 +227,13 @@ export function ScoreChart({
         <Chip active={effective === 'compare'} onClick={() => onView('compare')} title="Group averages with 95% confidence intervals">
           Compare groups
         </Chip>
-        <Chip active={effective === 'arc'} onClick={() => onView('arc')} title="Score across the book, page by page">
+        <Chip active={effective === 'arc'} onClick={() => onView('arc')} title="Score across the book, scene by scene">
           Across the pages
         </Chip>
         <Chip
           active={effective === 'agree'}
           onClick={() => onView('agree')}
-          title="Two dictionaries plotted against each other, page by page"
+          title="Two dictionaries plotted against each other, scene by scene"
         >
           Compare instruments
         </Chip>
@@ -246,7 +246,7 @@ export function ScoreChart({
         (hasSeries ? (
           <ArcChart result={result} onInspect={setInspect} instrumentOrder={instrumentOrder} />
         ) : (
-          <p className="text-sm text-muted">Loading per-page scores…</p>
+          <p className="text-sm text-muted">Loading per-scene scores…</p>
         ))}
       {effective === 'agree' &&
         (canAgree ? (
@@ -341,7 +341,7 @@ function DotPlot({
         <Chip active={sortByValue} onClick={() => setSortByValue(!sortByValue)}>
           {sortByValue ? 'Sorted by score' : 'Sorted by name'}
         </Chip>
-        <span>click a row to see the pages behind it</span>
+        <span>click a row to see the scenes behind it</span>
         <span>
           axis {min.toFixed(2)}–{max.toFixed(2)}
           {(min > 0 || max < 1) && ' (zoomed to the data, not 0–1)'}
@@ -356,7 +356,7 @@ function DotPlot({
             <div
               key={`${g.dimension}:${g.method}:${g.key}`}
               onClick={() => onInspect(g)}
-              title="Show the pages behind this number"
+              title="Show the scenes behind this number"
               className={
                 'flex cursor-pointer items-center gap-3 rounded px-1 -mx-1 hover:bg-surface-2 ' +
                 (inspected === g ? 'bg-surface-2' : '')
@@ -392,8 +392,8 @@ function DotPlot({
                     (st
                       ? `\nmedian ${fmt(st.median)}  sd ${fmt(st.sd)}` +
                         `\n95% CI ±${fmt(st.ci95)}` +
-                        `\n${g.count} page(s) across ${st.nBooks} book(s)`
-                      : `\n${g.count} page(s)`)
+                        `\n${g.count} scene(s) across ${st.nBooks} book(s)`
+                      : `\n${g.count} scene(s)`)
                   }
                 />
               </div>
@@ -572,10 +572,10 @@ function ArcChart({
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted">
-        <Chip active={smooth} onClick={() => setSmooth(!smooth)} title="3-page rolling mean">
-          {smooth ? 'Smoothed' : 'Raw pages'}
+        <Chip active={smooth} onClick={() => setSmooth(!smooth)} title="3-scene rolling mean">
+          {smooth ? 'Smoothed' : 'Raw scenes'}
         </Chip>
-        <span>x = position in book (%), anchored to the book’s own page range · click a line to open its pages</span>
+        <span>x = position in book (%), anchored to the book’s own scene range · click a line to open its scenes</span>
       </div>
 
       <div className="relative overflow-x-auto" onMouseLeave={tip.hide}>
@@ -635,7 +635,7 @@ function ArcChart({
                   onMouseMove={(e) =>
                     tip.show(
                       e,
-                      [line.key, `page ${p.page} · ${Math.round(p.x)}% through`, `score ${fmt(p.y)}`],
+                      [line.key, `scene ${p.page} · ${Math.round(p.x)}% through`, `score ${fmt(p.y)}`],
                       line.color,
                       e.currentTarget.closest('.relative'),
                     )
@@ -667,7 +667,7 @@ function ArcChart({
           they have no single page sequence. Compare them under “Compare groups”.
         </Note>
       )}
-      {smooth && <Note>Line is a 3-page rolling mean; faint dots are the raw page scores behind it.</Note>}
+      {smooth && <Note>Line is a 3-scene rolling mean; faint dots are the raw scene scores behind it.</Note>}
     </div>
   );
 }
@@ -752,7 +752,7 @@ function AgreementChart({ rows, methods }: { rows: ScoreRow[]; methods: string[]
         {select(ym, setYm)}
         {stats && (
           <span className="tabular-nums">
-            r = <strong className="text-ink">{stats.r.toFixed(3)}</strong> over {stats.n} shared page(s) ·
+            r = <strong className="text-ink">{stats.r.toFixed(3)}</strong> over {stats.n} shared scene(s) ·
             mean difference {stats.meanDiff >= 0 ? '+' : ''}{fmt(stats.meanDiff)} ·
             disagree on direction {(stats.disagreeShare * 100).toFixed(0)}%
           </span>
@@ -790,7 +790,7 @@ function AgreementChart({ rows, methods }: { rows: ScoreRow[]; methods: string[]
                 onMouseMove={(e) =>
                   tip.show(
                     e,
-                    [`${p.book} · page ${p.page}`, `${xm}: ${fmt(p.x)}`, `${ym}: ${fmt(p.y)}`],
+                    [`${p.book} · scene ${p.page}`, `${xm}: ${fmt(p.x)}`, `${ym}: ${fmt(p.y)}`],
                     PALETTE[0],
                     e.currentTarget.closest('.relative'),
                   )

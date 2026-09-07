@@ -50,7 +50,7 @@ export function ScoreInspector({
         <div>
           <h3 className="text-sm font-semibold text-ink">{group.key}</h3>
           <p className="mt-0.5 text-xs text-muted">
-            {group.method} · {group.dimension} · {pages.length} page(s)
+            {group.method} · {group.dimension} · {pages.length} scene(s)
             {group.stats && (
               <>
                 {' '}· median {group.stats.median.toFixed(3)} · sd {group.stats.sd.toFixed(3)} ·{' '}
@@ -106,7 +106,7 @@ export function ScoreInspector({
             <Explanation row={selected} />
           ) : (
             <p className="text-xs text-muted">
-              Pick a page to see the words the dictionary matched on it, and the page’s text.
+              Pick a scene to see the words the dictionary matched on it, and the page’s text.
             </p>
           )}
         </div>
@@ -151,7 +151,7 @@ function Explanation({ row }: { row: ScoreRow }) {
           to={`/book/${encodeURIComponent(data.book)}/page/${data.pageNumber}`}
           className="text-accent hover:underline"
         >
-          {data.book} · page {data.pageNumber} →
+          {data.book} · scene {data.pageNumber} →
         </Link>
         <span className="tabular-nums text-ink">
           {data.storedScore !== null ? data.storedScore.toFixed(3) : '—'}
