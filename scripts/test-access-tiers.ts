@@ -75,11 +75,22 @@ const ROUTES: Route[] = [
   { method: 'POST', path: `/api/books/${B}/pages/1/verify`, guest: 'deny' },
   { method: 'POST', path: `/api/books/${B}/verify`, guest: 'deny' },
 
-  // Analysis writes / spend
+  // Analysis spend — anything that reaches Claude stays member-only
   { method: 'POST', path: '/api/analysis/estimate', guest: 'deny', body: { style: 'llm:claude-sonnet-4-6' } },
   { method: 'POST', path: '/api/analysis/runs', guest: 'deny', body: { style: 'llm:claude-sonnet-4-6' } },
   { method: 'GET', path: '/api/analysis/runs', guest: 'deny' },
-  { method: 'GET', path: '/api/analysis/runs/abc', guest: 'deny' },
+
+  // Bag-of-words runs are open to guests: local, free, and deterministic, so a
+  // guest's score is the same number a member would have written. These get past
+  // the tier and fail later on the fixture's missing dictionary — which is the
+  // distinction blockedByTier exists to draw.
+  { method: 'POST', path: '/api/analysis/estimate', guest: 'allow', body: { style: 'lexicon:afinn' } },
+  { method: 'POST', path: '/api/analysis/runs', guest: 'allow', body: { style: 'lexicon:afinn' } },
+  // …but not the two things that would let a guest change an existing score.
+  { method: 'POST', path: '/api/analysis/runs', guest: 'deny', body: { style: 'lexicon:afinn', overwrite: true } },
+  { method: 'POST', path: '/api/analysis/runs', guest: 'deny', body: { style: 'lexicon:afinn', rubric: 'x', rubricName: 'y' } },
+  // Progress polling — a guest who started a run has to be able to watch it.
+  { method: 'GET', path: '/api/analysis/runs/abc', guest: 'allow' },
   { method: 'GET', path: '/api/analysis/batches', guest: 'deny' },
   { method: 'POST', path: '/api/analysis/batches/abc/check', guest: 'deny' },
   { method: 'POST', path: '/api/analysis/prewarm', guest: 'deny', body: {} },
