@@ -24,16 +24,23 @@ import { ScoreInspector } from './ScoreInspector';
  * were caught against real data; each is commented where it is handled.
  */
 
-/** Distinguishable at a glance, and legible on both the light and dark grounds. */
+/**
+ * Chosen for separation first, harmony second.
+ *
+ * The previous set was drawn from the app's warm palette and several pairs were
+ * too close to tell apart on a line chart — gold against bronze, terracotta
+ * against rose. These are spread around the hue circle instead, and each is
+ * mid-saturation so it reads on both the off-white and the near-black ground.
+ */
 const PALETTE = [
-  '#bf5e38', // terracotta — the app's own accent
-  '#3d7f8c', // teal
-  '#9c6f2b', // gold
-  '#6b5b95', // violet
-  '#4f7942', // fern
-  '#a8435f', // rose
-  '#2f6690', // steel
-  '#8a6d3b', // bronze
+  '#d1603d', // orange
+  '#2a9d8f', // teal
+  '#7161ef', // indigo
+  '#c9a227', // gold
+  '#3a86ff', // blue
+  '#c1436d', // raspberry
+  '#4c9a2a', // green
+  '#8d6e63', // taupe
 ];
 
 /** Above this many groups a dot plot is taller than any screen. */
@@ -79,10 +86,27 @@ function varying(groups: AnalyzeGroup[]) {
  * apart in five arbitrary colours, while readers reasonably assume colour means
  * instrument. Now it does, whenever more than one is on screen.
  */
-function colorer(groups: AnalyzeGroup[], vary: { methods: boolean }) {
+/**
+ * Colour by instrument when instruments vary, otherwise by position.
+ *
+ * The index comes from the full list of instruments the app knows about, not
+ * from the ones currently on screen, so lex-afinn keeps the same colour in every
+ * view and does not change hue when you add or remove another dictionary. A
+ * hash of the name would also be stable but could collide; a fixed list cannot.
+ */
+function colorer(
+  groups: AnalyzeGroup[],
+  vary: { methods: boolean },
+  instrumentOrder: string[],
+) {
   if (!vary.methods) return (_g: AnalyzeGroup, i: number) => PALETTE[i % PALETTE.length];
-  const order = [...new Set(groups.map((g) => g.method))].sort();
-  return (g: AnalyzeGroup) => PALETTE[order.indexOf(g.method) % PALETTE.length];
+  const order = instrumentOrder.length
+    ? instrumentOrder
+    : [...new Set(groups.map((g) => g.method))].sort();
+  return (g: AnalyzeGroup) => {
+    const i = order.indexOf(g.method);
+    return PALETTE[(i < 0 ? order.length : i) % PALETTE.length];
+  };
 }
 
 const fmt = (n: number) => n.toFixed(3);
@@ -113,6 +137,46 @@ function Chip({
   );
 }
 
+/**
+ * A hover readout that actually appears when you hover.
+ *
+ * The charts relied on SVG <title>, which is the browser's native tooltip: it
+ * waits about a second, truncates, cannot be styled, and never fires on touch.
+ * On a scatter of 1,200 overlapping dots that is the difference between "what
+ * is this point" being answerable and not. This is a positioned div driven by
+ * mouse position, so it is instant and can carry several lines.
+ */
+function useTooltip() {
+  const [tip, setTip] = useState<{ x: number; y: number; lines: string[]; color?: string } | null>(null);
+  const show = (e: { clientX: number; clientY: number }, lines: string[], color?: string, host?: Element | null) => {
+    const box = host?.getBoundingClientRect();
+    setTip({
+      x: e.clientX - (box?.left ?? 0),
+      y: e.clientY - (box?.top ?? 0),
+      lines,
+      color,
+    });
+  };
+  const hide = () => setTip(null);
+  const node = tip ? (
+    <div
+      className="pointer-events-none absolute z-10 max-w-xs rounded border border-border bg-surface px-2 py-1 text-[11px] leading-snug text-ink shadow-lg"
+      // Nudged up and right of the cursor so it never sits under the pointer.
+      style={{ left: tip.x + 12, top: tip.y - 8 }}
+    >
+      {tip.color && (
+        <span className="mr-1.5 inline-block h-2 w-2 rounded-sm align-middle" style={{ backgroundColor: tip.color }} />
+      )}
+      {tip.lines.map((l, i) => (
+        <div key={i} className={i === 0 ? 'font-medium' : 'text-muted'}>
+          {l}
+        </div>
+      ))}
+    </div>
+  ) : null;
+  return { show, hide, node };
+}
+
 function Note({ children }: { children: React.ReactNode }) {
   return <p className="mt-2 text-xs text-muted">{children}</p>;
 }
@@ -125,10 +189,13 @@ export function ScoreChart({
   result,
   view,
   onView,
+  instrumentOrder = [],
 }: {
   result: AnalyzeResult;
   view: ChartView;
   onView: (v: ChartView) => void;
+  /** Every instrument the app knows, so colour is stable across selections. */
+  instrumentOrder?: string[];
 }) {
   const groups = result.groups;
   const methodsPresent = useMemo(
@@ -172,10 +239,12 @@ export function ScoreChart({
         </Chip>
       </div>
 
-      {effective === 'compare' && <DotPlot groups={groups} onInspect={setInspect} inspected={inspect} />}
+      {effective === 'compare' && (
+        <DotPlot groups={groups} onInspect={setInspect} inspected={inspect} instrumentOrder={instrumentOrder} />
+      )}
       {effective === 'arc' &&
         (hasSeries ? (
-          <ArcChart result={result} onInspect={setInspect} />
+          <ArcChart result={result} onInspect={setInspect} instrumentOrder={instrumentOrder} />
         ) : (
           <p className="text-sm text-muted">Loading per-page scores…</p>
         ))}
@@ -220,16 +289,18 @@ function DotPlot({
   groups,
   onInspect,
   inspected,
+  instrumentOrder,
 }: {
   groups: AnalyzeGroup[];
   onInspect: (g: AnalyzeGroup) => void;
   inspected: AnalyzeGroup | null;
+  instrumentOrder: string[];
 }) {
   const [sortByValue, setSortByValue] = useState(true);
   const [showAll, setShowAll] = useState(false);
 
   const vary = varying(groups);
-  const color = colorer(groups, vary);
+  const color = colorer(groups, vary, instrumentOrder);
 
   const all = useMemo(() => {
     const withMean = groups
@@ -424,16 +495,18 @@ const VIEW_H = 340;
 function ArcChart({
   result,
   onInspect,
+  instrumentOrder,
 }: {
   result: AnalyzeResult;
   onInspect: (g: AnalyzeGroup) => void;
+  instrumentOrder: string[];
 }) {
   const [smooth, setSmooth] = useState(true);
   const [showAll, setShowAll] = useState(false);
 
   const groups = result.groups.filter((g) => (g.points?.length ?? 0) > 0);
   const vary = varying(groups);
-  const color = colorer(groups, vary);
+  const color = colorer(groups, vary, instrumentOrder);
 
   // A group is plottable as an arc only if its points come from one book.
   const pooled = groups.filter((g) => new Set(g.points!.map((p) => p.book_title)).size > 1);
@@ -476,13 +549,25 @@ function ArcChart({
         })
       : raw;
 
-    return { key: labelFor(g, vary), color: color(g, i), raw, points: smoothed, group: g };
+    return { key: labelFor(g, vary), color: color(g, i), raw, points: smoothed, group: g, book };
   });
+
+  /**
+   * Colour carries the instrument, so when books vary too it has nothing left to
+   * say about them — two books of the same dictionary were drawn identically.
+   * Dash pattern carries the book in that case, which keeps colour meaning one
+   * thing and still separates four lines from two dictionaries.
+   */
+  const bookOrder = [...new Set(lines.map((l) => l.book))].sort();
+  const DASHES = [undefined, '6 3', '2 3', '9 3 2 3', '1 3'];
+  const dashFor = (book: string) =>
+    vary.methods && bookOrder.length > 1 ? DASHES[bookOrder.indexOf(book) % DASHES.length] : undefined;
 
   const plotW = VIEW_W - PAD.left - PAD.right;
   const plotH = VIEW_H - PAD.top - PAD.bottom;
   const sx = (x: number) => PAD.left + (x / 100) * plotW;
   const sy = (y: number) => PAD.top + (1 - y) * plotH;
+  const tip = useTooltip();
 
   return (
     <div>
@@ -493,7 +578,8 @@ function ArcChart({
         <span>x = position in book (%), anchored to the book’s own page range · click a line to open its pages</span>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto" onMouseLeave={tip.hide}>
+        {tip.node}
         <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="h-auto w-full min-w-[520px]" role="img" aria-label="Score across the book">
           {[0, 0.25, 0.5, 0.75, 1].map((t) => (
             <g key={t}>
@@ -531,22 +617,41 @@ function ArcChart({
                   fill="none"
                   stroke={line.color}
                   strokeWidth={2}
+                  strokeDasharray={dashFor(line.book)}
                   strokeLinejoin="round"
                   strokeLinecap="round"
                   opacity={0.9}
                 />
               )}
               {line.raw.map((p, i) => (
-                <circle key={i} cx={sx(p.x)} cy={sy(p.y)} r={2} fill={line.color} opacity={smooth ? 0.28 : 0.9}>
-                  <title>{`${p.book} · p${p.page} · ${fmt(p.y)}`}</title>
-                </circle>
+                <circle
+                  key={i}
+                  cx={sx(p.x)}
+                  cy={sy(p.y)}
+                  // Generous invisible hit area: a 2px dot is very hard to hit,
+                  // and the whole point of the hover is to identify one.
+                  r={7}
+                  fill="transparent"
+                  onMouseMove={(e) =>
+                    tip.show(
+                      e,
+                      [line.key, `page ${p.page} · ${Math.round(p.x)}% through`, `score ${fmt(p.y)}`],
+                      line.color,
+                      e.currentTarget.closest('.relative'),
+                    )
+                  }
+                  onMouseLeave={tip.hide}
+                />
+              ))}
+              {line.raw.map((p, i) => (
+                <circle key={`d${i}`} cx={sx(p.x)} cy={sy(p.y)} r={2} fill={line.color} opacity={smooth ? 0.28 : 0.9} pointerEvents="none" />
               ))}
             </g>
           ))}
         </svg>
       </div>
 
-      <Legend items={lines.map((l) => ({ key: l.key, color: l.color }))} />
+      <Legend items={lines.map((l) => ({ key: l.key, color: l.color, dash: dashFor(l.book) }))} />
 
       {plottable.length > shown.length && (
         <Note>
@@ -588,15 +693,17 @@ function AgreementChart({ rows, methods }: { rows: ScoreRow[]; methods: string[]
   const [ym, setYm] = useState(methods[1] ?? methods[0]);
 
   const pairs = useMemo(() => {
-    const byPage = new Map<number, Record<string, number>>();
+    const byPage = new Map<number, { scores: Record<string, number>; book: string; page: number }>();
     for (const r of rows) {
-      const e = byPage.get(r.page_id) ?? {};
-      e[r.method_name] = r.score;
+      const e = byPage.get(r.page_id) ?? { scores: {}, book: r.book_title, page: r.page_number };
+      e.scores[r.method_name] = r.score;
       byPage.set(r.page_id, e);
     }
-    const out: Array<{ x: number; y: number }> = [];
+    const out: Array<{ x: number; y: number; book: string; page: number }> = [];
     for (const e of byPage.values()) {
-      if (e[xm] !== undefined && e[ym] !== undefined) out.push({ x: e[xm], y: e[ym] });
+      if (e.scores[xm] !== undefined && e.scores[ym] !== undefined) {
+        out.push({ x: e.scores[xm], y: e.scores[ym], book: e.book, page: e.page });
+      }
     }
     return out;
   }, [rows, xm, ym]);
@@ -618,6 +725,7 @@ function AgreementChart({ rows, methods }: { rows: ScoreRow[]; methods: string[]
     return { n, r, meanDiff: my - mx, disagreeShare: disagree / n };
   }, [pairs]);
 
+  const tip = useTooltip();
   const S = 340;
   const P = 34;
   const sx = (v: number) => P + v * (S - P - 10);
@@ -657,7 +765,8 @@ function AgreementChart({ rows, methods }: { rows: ScoreRow[]; methods: string[]
           dictionary matches gets no score, and coverage differs between dictionaries.
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto" onMouseLeave={tip.hide}>
+          {tip.node}
           <svg viewBox={`0 0 ${S} ${S}`} className="h-auto w-full max-w-[420px]" role="img" aria-label="Instrument agreement">
             <rect x={P} y={10} width={S - P - 10} height={S - P - 10} fill="var(--surface-2)" opacity={0.5} />
             {/* y = x. Dots on it agree; a cloud parallel to it is constant bias. */}
@@ -671,7 +780,23 @@ function AgreementChart({ rows, methods }: { rows: ScoreRow[]; methods: string[]
             {/* Low opacity because pages pile up on identical values — the
                 density of the cloud is the information. */}
             {pairs.map((p, i) => (
-              <circle key={i} cx={sx(p.x)} cy={sy(p.y)} r={2.5} fill={PALETTE[0]} opacity={0.28} />
+              <circle
+                key={i}
+                cx={sx(p.x)}
+                cy={sy(p.y)}
+                r={4}
+                fill={PALETTE[0]}
+                opacity={0.28}
+                onMouseMove={(e) =>
+                  tip.show(
+                    e,
+                    [`${p.book} · page ${p.page}`, `${xm}: ${fmt(p.x)}`, `${ym}: ${fmt(p.y)}`],
+                    PALETTE[0],
+                    e.currentTarget.closest('.relative'),
+                  )
+                }
+                onMouseLeave={tip.hide}
+              />
             ))}
             <text x={(S + P) / 2} y={S - 1} textAnchor="middle" className="fill-[var(--muted)] text-[10px]">{xm}</text>
           </svg>
@@ -686,13 +811,26 @@ function AgreementChart({ rows, methods }: { rows: ScoreRow[]; methods: string[]
   );
 }
 
-function Legend({ items }: { items: Array<{ key: string; color: string }> }) {
+function Legend({ items }: { items: Array<{ key: string; color: string; dash?: string }> }) {
   if (items.length <= 1) return null;
   return (
     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
       {items.map((it) => (
         <span key={it.key} className="flex items-center gap-1.5 text-xs text-muted" title={it.key}>
-          <span className="h-2 w-4 shrink-0 rounded-sm" style={{ backgroundColor: it.color }} />
+          {/* Drawn as the line itself, dashes and all, so the swatch matches
+              what is on the chart rather than only its colour. */}
+          <svg width="20" height="8" className="shrink-0" aria-hidden="true">
+            <line
+              x1="0"
+              y1="4"
+              x2="20"
+              y2="4"
+              stroke={it.color}
+              strokeWidth="2.5"
+              strokeDasharray={it.dash}
+              strokeLinecap="round"
+            />
+          </svg>
           <span className="max-w-[16rem] truncate">{it.key}</span>
         </span>
       ))}
