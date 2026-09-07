@@ -234,6 +234,7 @@ function toScoreInput(req, method, mode) {
         dimensionNames: req.dimensions,
         method: method.name,
         tags: req.tags,
+        sections: req.sections,
         pageStart: req.pageStart,
         pageEnd: req.pageEnd,
         overwrite: req.overwrite,
@@ -309,6 +310,7 @@ export async function startRun(req) {
         books: req.books,
         dimensions: req.dimensions,
         tags: req.tags,
+        sections: req.sections,
         pageStart: req.pageStart,
         pageEnd: req.pageEnd,
     };

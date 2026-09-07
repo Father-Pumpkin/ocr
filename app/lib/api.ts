@@ -153,6 +153,10 @@ function analysisQuery(q: AnalysisQuery): string {
   for (const key of ['books', 'dimensions', 'methods', 'tags'] as const) {
     for (const v of q[key] ?? []) params.append(key, v);
   }
+  // Sections go over as "start>end"; an empty side means the edge of the book.
+  for (const sec of q.sections ?? []) {
+    params.append('sections', `${sec.startTag ?? ''}>${sec.endTag ?? ''}`);
+  }
   if (q.groupBy) params.set('groupBy', q.groupBy);
   if (q.aggregate) params.set('aggregate', q.aggregate);
   if (q.pageStart !== undefined) params.set('pageStart', String(q.pageStart));

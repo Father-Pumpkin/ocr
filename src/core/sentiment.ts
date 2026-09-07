@@ -29,6 +29,14 @@ import {
 import { createSentimentBatch, DEFAULT_MODEL, type SentimentBatchItem } from './ocr.js';
 import { getScorer, parseMethodConfig } from './scoring.js';
 import { mapLimit, isTextPage } from './quality.js';
+import {
+  resolveSections,
+  pageInAnySection,
+  parsePageTags,
+  isMeaningfulSection,
+  type SectionSpec,
+  type SectionPage,
+} from './sections.js';
 
 // Below this many page×dimension pairs, an LLM method scores inline; at/above it
 // submits a Batch API job. Lexicon methods ignore this — they always run locally.
@@ -41,8 +49,14 @@ export interface ScorePagesInput {
   dimensionNames?: string[];
   /** Scoring method (instrument) name; defaults to the built-in 'claude-default'. */
   method?: string;
-  /** Restrict to pages carrying any of these tags — the "specific section" scope. */
+  /** Restrict to pages carrying any of these tags. */
   tags?: string[];
+  /**
+   * Restrict to pages inside tag-bounded sections, resolved per book (see
+   * core/sections). Scoping to the union of the sections given; combined with
+   * `tags` and the page range by AND, so every filter supplied must hold.
+   */
+  sections?: SectionSpec[];
   pageStart?: number;
   pageEnd?: number;
   overwrite?: boolean;
@@ -105,14 +119,25 @@ async function resolveDimensions(names?: string[]): Promise<DimensionRow[]> {
   return names.map((n) => byName.get(n)).filter((d): d is DimensionRow => !!d);
 }
 
-/** Page tags are stored as a JSON array string; tolerate anything malformed. */
-function pageTags(page: { tags: string }): string[] {
-  try {
-    const parsed = JSON.parse(page.tags || '[]');
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch {
-    return [];
+
+/**
+ * Resolve tag-bounded sections against the books in scope.
+ *
+ * Deliberately reads each book's *complete* page list rather than the
+ * page-range-filtered one: a marker outside the requested range still defines
+ * where the section starts, so filtering first would resolve sections against a
+ * window that may not contain their own boundaries.
+ */
+async function resolveScopeSections(books: BookRow[], specs: SectionSpec[] = []) {
+  const meaningful = specs.filter(isMeaningfulSection);
+  if (meaningful.length === 0) return null;
+  const pages: SectionPage[] = [];
+  for (const book of books) {
+    for (const p of await getPages(book.id)) {
+      pages.push({ book_id: book.id, page_number: p.page_number, tags: parsePageTags(p.tags) });
+    }
   }
+  return resolveSections(meaningful, pages);
 }
 
 /** (page, dimension) pairs in scope still needing a score for this method. */
@@ -124,6 +149,7 @@ async function collectItems(
   overwrite: boolean,
   methodId: number,
   tags: string[] = [],
+  sections: SectionSpec[] = [],
 ): Promise<{ items: ScoreItem[]; skipped: number }> {
   const bookIds = books.map((b) => b.id);
   const dimIds = dims.map((d) => d.id);
@@ -131,13 +157,16 @@ async function collectItems(
     ? new Set<string>()
     : new Set((await getSentimentScores(bookIds, dimIds, [methodId])).map((r) => `${r.page_id}:${r.dimension_id}`));
 
+  const resolved = await resolveScopeSections(books, sections);
+
   const items: ScoreItem[] = [];
   let skipped = 0;
   for (const book of books) {
     const pages = await getPages(book.id, pageStart, pageEnd);
     for (const p of pages) {
       if (!isTextPage(p)) continue;
-      if (tags.length && !pageTags(p).some((t) => tags.includes(t))) continue;
+      if (tags.length && !parsePageTags(p.tags).some((t) => tags.includes(t))) continue;
+      if (resolved && !pageInAnySection(resolved, book.id, p.page_number)) continue;
       for (const d of dims) {
         if (existing.has(`${p.id}:${d.id}`)) {
           skipped++;
@@ -225,7 +254,7 @@ export async function estimateScoring(input: ScorePagesInput): Promise<ScoringEs
   if (dims.length === 0) return shell('No sentiment dimensions selected.');
 
   const { items, skipped } = await collectItems(
-    books, dims, input.pageStart, input.pageEnd, !!input.overwrite, method.id, input.tags,
+    books, dims, input.pageStart, input.pageEnd, !!input.overwrite, method.id, input.tags, input.sections,
   );
   const requiredCalls = method.kind === 'lexicon' ? 0 : items.length;
   const recommendedMode: RunMode =
@@ -276,7 +305,7 @@ export async function scorePages(input: ScorePagesInput): Promise<ScorePagesResu
   }
 
   const { items, skipped } = await collectItems(
-    books, dims, input.pageStart, input.pageEnd, !!input.overwrite, method.id, input.tags,
+    books, dims, input.pageStart, input.pageEnd, !!input.overwrite, method.id, input.tags, input.sections,
   );
   base.skipped = skipped;
 

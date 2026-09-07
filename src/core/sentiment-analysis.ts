@@ -28,8 +28,17 @@ import {
   type SentimentScoreDetail,
 } from './database.js';
 import { isTextPage } from './quality.js';
+import {
+  resolveSections,
+  sectionsForPage,
+  parsePageTags,
+  isMeaningfulSection,
+  type SectionSpec,
+  type SectionPage,
+  type ResolvedSection,
+} from './sections.js';
 
-export type GroupBy = 'page' | 'book' | 'tag' | 'book_tag' | 'method';
+export type GroupBy = 'page' | 'book' | 'tag' | 'book_tag' | 'method' | 'section';
 export type Aggregate = 'series' | 'mean';
 
 export interface AnalyzeInput {
@@ -38,6 +47,12 @@ export interface AnalyzeInput {
   /** Scoring methods to include. Empty/undefined = all methods that have scores. */
   methods?: string[];
   tags?: string[];
+  /**
+   * Tag-bounded sections, resolved per book (see core/sections). Supplying any
+   * restricts the rows to their union; with groupBy 'section' each becomes its
+   * own group, which is how sections get compared against each other.
+   */
+  sections?: SectionSpec[];
   groupBy?: GroupBy;
   aggregate?: Aggregate;
   pageStart?: number;
@@ -52,7 +67,7 @@ export interface SeriesPoint {
 }
 
 export interface AnalyzeGroup {
-  /** Display label: a book title, a tag, "book — tag", or a method name. */
+  /** Display label: a book title, a tag, "book — tag", a method, or a section. */
   key: string;
   dimension: string;
   /** The scoring instrument these scores came from. */
@@ -62,6 +77,15 @@ export interface AnalyzeGroup {
   points?: SeriesPoint[];
 }
 
+export interface SectionCoverage {
+  label: string;
+  startTag: string | null;
+  endTag: string | null;
+  booksResolved: number;
+  /** Books lacking one of the markers — the section says nothing about them. */
+  booksSkipped: number;
+}
+
 export interface AnalyzeResult {
   groupBy: GroupBy;
   aggregate: Aggregate;
@@ -69,6 +93,14 @@ export interface AnalyzeResult {
   books: string[];
   methods: string[];
   tags: string[];
+  /** One entry per section asked for, with how many books it resolved in. */
+  sections: SectionCoverage[];
+  /**
+   * page_id → the sections containing it. Keyed by page rather than by score
+   * row because membership depends only on where the page sits in its book, not
+   * on which dimension or method scored it. Empty unless sections were asked for.
+   */
+  sectionsByPageId: Record<number, string[]>;
   groups: AnalyzeGroup[];
   /**
    * Every score row that survived the filters, ungrouped. The aggregation above
@@ -113,13 +145,24 @@ async function resolveMethods(names?: string[]): Promise<MethodRow[]> {
 }
 
 /** Which group(s) a score row belongs to (a row can land in several tag groups). */
-function groupKeys(r: SentimentScoreDetail, groupBy: GroupBy, tagFilter: string[]): string[] {
+function groupKeys(
+  r: SentimentScoreDetail,
+  groupBy: GroupBy,
+  tagFilter: string[],
+  sections: ResolvedSection[],
+): string[] {
   switch (groupBy) {
     case 'page':
     case 'book':
       return [r.book_title];
     case 'method':
       return [r.method_name];
+    case 'section': {
+      // Sections may overlap at a shared boundary marker, so one page can land
+      // in two groups. That's intended — see core/sections.
+      const hits = sectionsForPage(sections, r.book_id, r.page_number);
+      return hits.length ? hits : ['(outside every section)'];
+    }
     case 'tag': {
       const tags = tagFilter.length ? r.tags.filter((t) => tagFilter.includes(t)) : r.tags;
       return tags.length ? tags : ['(untagged)'];
@@ -145,6 +188,26 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
   const dims = await resolveDimensions(input.dimensionNames);
   const methods = await resolveMethods(input.methods);
   const tagFilter = (input.tags ?? []).map((t) => t.trim()).filter(Boolean);
+  const sectionSpecs = (input.sections ?? []).filter(isMeaningfulSection);
+
+  // Resolved against every page of each in-scope book, not the range-filtered
+  // set: a section's own boundary marker may sit outside the requested range.
+  const sectionPages: SectionPage[] = [];
+  if (sectionSpecs.length) {
+    for (const b of books) {
+      for (const pg of await getPages(b.id)) {
+        sectionPages.push({ book_id: b.id, page_number: pg.page_number, tags: parsePageTags(pg.tags) });
+      }
+    }
+  }
+  const resolvedSections = resolveSections(sectionSpecs, sectionPages);
+  const sectionCoverage: SectionCoverage[] = resolvedSections.map((r) => ({
+    label: r.label,
+    startTag: r.spec.startTag?.trim() || null,
+    endTag: r.spec.endTag?.trim() || null,
+    booksResolved: r.booksResolved,
+    booksSkipped: r.booksSkipped,
+  }));
 
   const groupBy: GroupBy = input.groupBy ?? (books.length > 1 ? 'book' : 'page');
   const aggregate: Aggregate = input.aggregate ?? (groupBy === 'page' ? 'series' : 'mean');
@@ -156,6 +219,8 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
     books: books.map((b) => b.title),
     methods: methods.map((m) => m.name),
     tags: tagFilter,
+    sections: sectionCoverage,
+    sectionsByPageId: {},
     groups: [],
     rows: [],
     coverage: { booksMatched: books.length, textPages: 0, scoredPages: 0, scores: 0, ...extra },
@@ -177,6 +242,9 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
   if (input.pageStart !== undefined) rows = rows.filter((r) => r.page_number >= input.pageStart!);
   if (input.pageEnd !== undefined) rows = rows.filter((r) => r.page_number <= input.pageEnd!);
   if (tagFilter.length) rows = rows.filter((r) => r.tags.some((t) => tagFilter.includes(t)));
+  if (resolvedSections.length) {
+    rows = rows.filter((r) => sectionsForPage(resolvedSections, r.book_id, r.page_number).length > 0);
+  }
 
   const textPages = await countTextPages(books, input.pageStart, input.pageEnd);
   const scoredPages = new Set(rows.map((r) => r.page_id)).size;
@@ -188,6 +256,15 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
         `Run score_pages for these books/dimensions first (${textPages} text page(s) in scope).`,
       { textPages, scoredPages: 0, scores: 0 },
     );
+  }
+
+  const sectionsByPageId: Record<number, string[]> = {};
+  if (resolvedSections.length) {
+    for (const r of rows) {
+      if (sectionsByPageId[r.page_id] === undefined) {
+        sectionsByPageId[r.page_id] = sectionsForPage(resolvedSections, r.book_id, r.page_number);
+      }
+    }
   }
 
   // Partition by dimension, then method, then the requested group key — so each
@@ -204,7 +281,7 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
     for (const [methodName, mRows] of byMethod) {
       const buckets = new Map<string, SentimentScoreDetail[]>();
       for (const r of mRows) {
-        for (const key of groupKeys(r, groupBy, tagFilter)) {
+        for (const key of groupKeys(r, groupBy, tagFilter, resolvedSections)) {
           const arr = buckets.get(key);
           if (arr) arr.push(r);
           else buckets.set(key, [r]);
@@ -231,9 +308,17 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
   const gap = textPages > scoredPages
     ? ` Note: only ${scoredPages}/${textPages} in-scope text page(s) are scored — run score_pages to fill the rest.`
     : '';
+  // A section that resolved in only a handful of books is the likeliest reason a
+  // result looks thinner than expected, so it is stated rather than left to be
+  // inferred from a small count.
+  const sectionNote = sectionCoverage.length
+    ? ` Sections: ${sectionCoverage
+        .map((sc) => `${sc.label} (${sc.booksResolved} book(s)${sc.booksSkipped ? `, ${sc.booksSkipped} skipped for a missing marker` : ''})`)
+        .join('; ')}.`
+    : '';
   const summary =
     `${groups.length} group(s) over ${dims.length} dimension(s) and ${methodCount} method(s) for ` +
-    `${describeScope(books, dims, tagFilter)}, grouped by ${groupBy} as ${aggregate} (${rows.length} score(s)).${gap}`;
+    `${describeScope(books, dims, tagFilter)}, grouped by ${groupBy} as ${aggregate} (${rows.length} score(s)).${gap}${sectionNote}`;
 
   return {
     groupBy,
@@ -242,6 +327,8 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
     books: books.map((b) => b.title),
     methods: [...new Set(rows.map((r) => r.method_name))].sort(),
     tags: tagFilter,
+    sections: sectionCoverage,
+    sectionsByPageId,
     groups,
     rows,
     coverage: { booksMatched: books.length, textPages, scoredPages, scores: rows.length },

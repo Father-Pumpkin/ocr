@@ -95,6 +95,37 @@ function list(v) {
     const cleaned = raw.map((s) => s.trim()).filter(Boolean);
     return cleaned.length ? cleaned : undefined;
 }
+/**
+ * Sections arrive either as JSON objects (a run body) or as "start>end" strings
+ * (a query string, where nesting objects would be worse than the separator).
+ * An empty side means the edge of the book, so ">climax" is valid and means
+ * "everything up to the climax".
+ */
+function sections(v) {
+    const raw = Array.isArray(v) ? v : v === undefined || v === null || v === '' ? [] : [v];
+    const out = [];
+    for (const entry of raw) {
+        if (entry && typeof entry === 'object') {
+            const o = entry;
+            const spec = {
+                name: typeof o.name === 'string' && o.name.trim() ? o.name.trim() : undefined,
+                startTag: typeof o.startTag === 'string' && o.startTag.trim() ? o.startTag.trim() : null,
+                endTag: typeof o.endTag === 'string' && o.endTag.trim() ? o.endTag.trim() : null,
+            };
+            if (spec.startTag || spec.endTag)
+                out.push(spec);
+            continue;
+        }
+        const text = String(entry ?? '');
+        if (!text.includes('>'))
+            continue;
+        const [start, end] = text.split('>');
+        const spec = { startTag: start.trim() || null, endTag: end.trim() || null };
+        if (spec.startTag || spec.endTag)
+            out.push(spec);
+    }
+    return out.length ? out : undefined;
+}
 function posInt(v) {
     const n = Number.parseInt(str(v), 10);
     return Number.isFinite(n) && n > 0 ? n : undefined;
@@ -108,6 +139,7 @@ function analyzeInputFromQuery(req) {
         dimensionNames: list(req.query.dimensions),
         methods: list(req.query.methods),
         tags: list(req.query.tags),
+        sections: sections(req.query.sections),
         groupBy: groupBy ? groupBy : undefined,
         aggregate: aggregate ? aggregate : undefined,
         pageStart: posInt(req.query.pageStart),
@@ -133,6 +165,7 @@ function runRequestFromBody(body) {
         books: arr(b.books),
         dimensions: arr(b.dimensions),
         tags: arr(b.tags),
+        sections: sections(b.sections),
         pageStart: posInt(b.pageStart),
         pageEnd: posInt(b.pageEnd),
         rubric: typeof b.rubric === 'string' ? b.rubric : undefined,

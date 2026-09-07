@@ -186,6 +186,7 @@ export interface AnalysisRun {
     books?: string[];
     dimensions?: string[];
     tags?: string[];
+    sections?: SectionSpec[];
     pageStart?: number;
     pageEnd?: number;
   };
@@ -193,7 +194,24 @@ export interface AnalysisRun {
   error: string | null;
 }
 
-export type GroupBy = 'page' | 'book' | 'tag' | 'book_tag' | 'method';
+/** A page range bounded by structural tags, resolved per book (see core/sections). */
+export interface SectionSpec {
+  name?: string;
+  /** Tag on the section's first page. Null/omitted = the start of the book. */
+  startTag?: string | null;
+  /** Tag on the section's last page. Null/omitted = the end of the book. */
+  endTag?: string | null;
+}
+
+export interface SectionCoverage {
+  label: string;
+  startTag: string | null;
+  endTag: string | null;
+  booksResolved: number;
+  booksSkipped: number;
+}
+
+export type GroupBy = 'page' | 'book' | 'tag' | 'book_tag' | 'method' | 'section';
 export type Aggregate = 'series' | 'mean';
 
 export interface SeriesPoint {
@@ -219,6 +237,9 @@ export interface AnalyzeResult {
   books: string[];
   methods: string[];
   tags: string[];
+  sections: SectionCoverage[];
+  /** page_id → the sections containing it. Empty unless sections were requested. */
+  sectionsByPageId: Record<number, string[]>;
   groups: AnalyzeGroup[];
   coverage: { booksMatched: number; textPages: number; scoredPages: number; scores: number };
   summary: string;
@@ -264,6 +285,7 @@ export interface AnalysisQuery {
   dimensions?: string[];
   methods?: string[];
   tags?: string[];
+  sections?: SectionSpec[];
   groupBy?: GroupBy;
   aggregate?: Aggregate;
   pageStart?: number;

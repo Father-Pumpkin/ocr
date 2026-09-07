@@ -59,6 +59,7 @@ import {
   type ScoringEstimate,
 } from './sentiment.js';
 import { analyzeSentiment, type AnalyzeInput, type AnalyzeResult } from './sentiment-analysis.js';
+import type { SectionSpec } from './sections.js';
 import { buildExport, EXPORT_FORMATS, type ExportFile, type ExportFormat } from './analysis-export.js';
 import { importLexicon, previewLexicon, type LexiconPreview } from './lexicon-import.js';
 import {
@@ -74,7 +75,7 @@ import {
 } from './lexicon-catalogue.js';
 
 export { EXPORT_FORMATS, BATCH_RECOMMEND_THRESHOLD, seedLexiconsFromDisk };
-export type { ExportFormat, ExportFile, LexiconPreview, AnalyzeResult, ScoringEstimate, RunMode, SeedOutcome };
+export type { ExportFormat, ExportFile, LexiconPreview, AnalyzeResult, ScoringEstimate, RunMode, SeedOutcome, SectionSpec };
 
 /** Thrown for anything the caller got wrong — HTTP maps these to 400. */
 export class AnalysisInputError extends Error {
@@ -290,6 +291,11 @@ export interface RunScope {
   books?: string[];
   dimensions?: string[];
   tags?: string[];
+  /**
+   * Tag-bounded sections, resolved per book — "from the inciting incident to the
+   * climax". Supplying any restricts the run to their union. See core/sections.
+   */
+  sections?: SectionSpec[];
   pageStart?: number;
   pageEnd?: number;
 }
@@ -386,6 +392,7 @@ function toScoreInput(req: RunRequest, method: MethodRow, mode?: RunMode): Score
     dimensionNames: req.dimensions,
     method: method.name,
     tags: req.tags,
+    sections: req.sections,
     pageStart: req.pageStart,
     pageEnd: req.pageEnd,
     overwrite: req.overwrite,
@@ -498,6 +505,7 @@ export async function startRun(req: RunRequest): Promise<AnalysisRun> {
     books: req.books,
     dimensions: req.dimensions,
     tags: req.tags,
+    sections: req.sections,
     pageStart: req.pageStart,
     pageEnd: req.pageEnd,
   };
