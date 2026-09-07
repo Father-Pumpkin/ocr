@@ -51,6 +51,12 @@ import { useIsMember } from '../lib/session';
 /** The construct every dictionary loads into — see core/lexicon-catalogue. */
 const POLARITY_DIMENSION = 'polarity';
 
+/** The story body: the section that spans most of the corpus. */
+const DEFAULT_SECTION = {
+  startTag: 'first page of content',
+  endTag: 'last page of content',
+} as const;
+
 const FAMILY_LABEL: Record<StyleFamily, string> = {
   bag_of_words: 'Bag of words',
   llm: 'LLM',
@@ -167,6 +173,7 @@ export function Analysis() {
   const [showNewDimension, setShowNewDimension] = useState(false);
   const [batches, setBatches] = useState<SentimentBatch[]>([]);
   const [prewarming, setPrewarming] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const reloadOptions = useCallback(async () => {
     const opts = await api.getAnalysisOptions();
@@ -214,6 +221,16 @@ export function Analysis() {
           covered.find(has) ??
           opts.dimensions[0]?.name;
         setDimensions((prev) => (prev.length ? prev : start ? [start] : []));
+
+        // Open with the story body selected. Front and back matter — covers,
+        // dedications, author's notes — are not the text being studied, and
+        // including them by default quietly mixes them into every number. These
+        // two markers are the pair that spans the corpus: 62 of 72 books carry
+        // both, where the narrative beats cover about ten.
+        const hasTag = (t: string) => opts.tags.includes(t);
+        if (hasTag(DEFAULT_SECTION.startTag!) && hasTag(DEFAULT_SECTION.endTag!)) {
+          setSections((prev) => (prev.length ? prev : [DEFAULT_SECTION]));
+        }
       })
       .catch((e) => setLoadError(e instanceof ApiError ? e.message : String(e)));
   }, [reloadOptions, isMember]);
@@ -402,6 +419,10 @@ export function Analysis() {
 
   async function onRun() {
     setRunError(null);
+    // Submitting a batch takes a visible moment and then hands off, so there is
+    // no progress bar to follow it. Without this the button sat inert and the
+    // click looked lost.
+    setSubmitting(true);
     try {
       const { run: started } = await api.startAnalysisRun(runRequest);
       setRun(started);
@@ -433,6 +454,9 @@ export function Analysis() {
       }, 1000);
     } catch (e) {
       setRunError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      // Only the handoff is over; a standard run carries on under `running`.
+      setSubmitting(false);
     }
   }
 
@@ -511,8 +535,52 @@ export function Analysis() {
         </p>
       </header>
 
-      {/* ---- Step 1: the instrument ---- */}
-      <Section step={1} title="How to measure" hint="The scoring instrument.">
+      {/* ---- Step 1: the construct ---- */}
+      <Section step={1} title="What to measure" hint="One score per scene, per dimension.">
+        {options.dimensions.length === 0 ? (
+          <p className="text-sm text-muted">No dimensions defined yet — create one to get started.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {options.dimensions.map((d) => {
+              const on = dimensions.includes(d.name);
+              return (
+                <button
+                  key={d.id}
+                  title={d.description}
+                  onClick={() =>
+                    setDimensions((prev) => (on ? prev.filter((n) => n !== d.name) : [...prev, d.name]))
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
+                    on ? 'border-accent bg-accent text-accent-ink' : 'border-border bg-surface text-muted hover:text-ink'
+                  }`}
+                >
+                  {on && <Check className="h-3.5 w-3.5" />}
+                  {d.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {isMember && (
+          <button onClick={() => setShowNewDimension(true)} className={buttonClass('secondary', 'sm', 'mt-3')}>
+            <Plus className="h-4 w-4" />
+            New dimension
+          </button>
+        )}
+        {showNewDimension && (
+          <NewDimensionForm
+            onCancel={() => setShowNewDimension(false)}
+            onCreated={async (created) => {
+              setShowNewDimension(false);
+              await reloadOptions().catch(() => undefined);
+              setDimensions((prev) => [...prev, created]);
+            }}
+          />
+        )}
+      </Section>
+
+      {/* ---- Step 2: the instrument(s) ---- */}
+      <Section step={2} title="How to measure" hint="The scoring instrument.">
         <div className="flex gap-2">
           {(['llm', 'bag_of_words'] as StyleFamily[]).map((f) => (
             <button
@@ -573,6 +641,25 @@ export function Analysis() {
             : ''}
         </p>
 
+        {/* Which instruments the results compare. This was a row of chips under
+            the chart — the choice sitting after the thing it decides, a long
+            scroll from the instrument list it echoes. Choosing what to compare
+            belongs with choosing the instrument. */}
+        <div className="mt-4 border-t border-border pt-4">
+          <Label>Compare</Label>
+          <div className="mt-1.5">
+            <InstrumentPicker
+              all={allInstruments}
+              selected={chartMethods ?? (style?.method ? [style.method] : [])}
+              onChange={setChartMethods}
+              present={results?.methods ?? []}
+            />
+          </div>
+          <p className="mt-1.5 text-xs text-muted">
+            The instrument selected above is the one a run uses; everything ticked here is drawn in the results.
+          </p>
+        </div>
+
         {family === 'llm' && isMember && (
           <div className="mt-4">
             <label className="flex items-center gap-2 text-sm text-ink">
@@ -632,50 +719,6 @@ export function Analysis() {
               </div>
             )}
           </div>
-        )}
-      </Section>
-
-      {/* ---- Step 2: dimensions ---- */}
-      <Section step={2} title="What to measure" hint="One score per scene, per dimension.">
-        {options.dimensions.length === 0 ? (
-          <p className="text-sm text-muted">No dimensions defined yet — create one to get started.</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {options.dimensions.map((d) => {
-              const on = dimensions.includes(d.name);
-              return (
-                <button
-                  key={d.id}
-                  title={d.description}
-                  onClick={() =>
-                    setDimensions((prev) => (on ? prev.filter((n) => n !== d.name) : [...prev, d.name]))
-                  }
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
-                    on ? 'border-accent bg-accent text-accent-ink' : 'border-border bg-surface text-muted hover:text-ink'
-                  }`}
-                >
-                  {on && <Check className="h-3.5 w-3.5" />}
-                  {d.name}
-                </button>
-              );
-            })}
-          </div>
-        )}
-        {isMember && (
-          <button onClick={() => setShowNewDimension(true)} className={buttonClass('secondary', 'sm', 'mt-3')}>
-            <Plus className="h-4 w-4" />
-            New dimension
-          </button>
-        )}
-        {showNewDimension && (
-          <NewDimensionForm
-            onCancel={() => setShowNewDimension(false)}
-            onCreated={async (created) => {
-              setShowNewDimension(false);
-              await reloadOptions().catch(() => undefined);
-              setDimensions((prev) => [...prev, created]);
-            }}
-          />
         )}
       </Section>
 
@@ -803,8 +846,17 @@ export function Analysis() {
             maxLlmCalls={options.maxLlmCalls}
             maxBatchItems={options.maxBatchItems}
           />
-          <Button variant="primary" onClick={onRun} disabled={!canRun}>
-            {running ? 'Running…' : effectiveMode === 'batch' ? 'Submit batch' : 'Run analysis'}
+          <Button variant="primary" onClick={onRun} disabled={!canRun || submitting}>
+            {(submitting || running) && <Spinner className="h-4 w-4" />}
+            {submitting
+              ? effectiveMode === 'batch'
+                ? 'Submitting…'
+                : 'Starting…'
+              : running
+                ? 'Running…'
+                : effectiveMode === 'batch'
+                  ? 'Submit batch'
+                  : 'Run analysis'}
           </Button>
         </div>
 
@@ -877,13 +929,11 @@ export function Analysis() {
         <ResultsPanel
           results={results}
           busy={resultsBusy}
+          instruments={allInstruments}
           groupBy={groupBy}
           aggregate={aggregate}
           onGroupBy={setGroupBy}
           onAggregate={setAggregate}
-          instruments={allInstruments}
-          selectedInstruments={chartMethods ?? (style?.method ? [style.method] : [])}
-          onInstruments={setChartMethods}
           chartView={view}
           onChartView={chooseView}
           exportUrl={(f) => api.analysisExportUrl(resultsQuery, f)}
@@ -1380,8 +1430,6 @@ function ResultsPanel({
   onGroupBy,
   onAggregate,
   instruments,
-  selectedInstruments,
-  onInstruments,
   chartView,
   onChartView,
   exportUrl,
@@ -1393,9 +1441,8 @@ function ResultsPanel({
   aggregate: Aggregate | '';
   onGroupBy: (g: GroupBy | '') => void;
   onAggregate: (a: Aggregate | '') => void;
+  /** Every known instrument, so the chart can colour them from a stable list. */
   instruments: string[];
-  selectedInstruments: string[];
-  onInstruments: (v: string[] | null) => void;
   chartView: ChartView;
   onChartView: (v: ChartView) => void;
   exportUrl: (f: ExportFormat) => string;
@@ -1452,12 +1499,6 @@ function ResultsPanel({
                 <option value="series">Every scene</option>
               </select>
             </label>
-            <InstrumentPicker
-              all={instruments}
-              selected={selectedInstruments}
-              onChange={onInstruments}
-              present={results.methods}
-            />
             {/* Chart by default: the table answers "what is the number", the
                 chart answers "what is the shape", and the shape is the reason
                 to run this over a corpus at all. */}

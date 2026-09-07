@@ -5,6 +5,7 @@ import {
   getBookPagesData,
   getPageImageData,
   getCachedPageImage,
+  getCoverPageNumber,
   setPageImageData,
   updatePageText,
   setPageTagsData,
@@ -89,11 +90,24 @@ booksRouter.get('/books/:name/pages', async (req, res) => {
 // GET /api/books/:name/pages/:n/image — raw JPEG bytes (404 if no scan)
 booksRouter.get('/books/:name/pages/:n/image', LIMITS.IMAGES, async (req, res) => {
   try {
+    // A scan shows the same words the transcript does, so the public tier gets
+    // one page per book — the cover — and nothing else. Without this the
+    // transcript lockdown only moved the leak from JSON to JPEG.
+    const guest = isGuest(req);
+    if (guest) {
+      const cover = await getCoverPageNumber(bookName(req));
+      if (cover === null || pageNum(req) !== cover) {
+        res.status(403).json({
+          error: 'Scans are limited to approved accounts. Book covers are shown to everyone.',
+          memberRequired: true,
+        });
+        return;
+      }
+    }
     // A cache miss makes getPageImageData download the PDF from Drive and
     // rasterize every page. Members may trigger that; for guests it would be an
     // open invitation to burn CPU and Drive quota, so they get cached images only.
-    const isGuest = (req as AuthedRequest).user?.role === 'guest';
-    const { imageData } = isGuest
+    const { imageData } = guest
       ? { imageData: await getCachedPageImage(bookName(req), pageNum(req)) }
       : await getPageImageData(bookName(req), pageNum(req));
     if (!imageData) {

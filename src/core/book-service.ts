@@ -32,6 +32,7 @@ import { readPageImageBase64, writePageImageBase64, imageRenderScale } from './i
 import { transcribeSinglePageImage, DEFAULT_MODEL } from './ocr.js';
 import { verifyBookById, verifyPageById, markPageOkById } from './quality.js';
 import { splitImageHorizontally } from './image-split.js';
+import { parsePageTags } from './sections.js';
 
 export { getDriveAuthStatus, startDriveConnect, clearAuth } from './google-drive.js';
 
@@ -241,6 +242,50 @@ export async function getPageOcrRunsData(
 ): Promise<OcrRunRow[]> {
   const book = await requireBook(bookName);
   return getOcrRuns(book.id, pageNumber);
+}
+
+/**
+ * The one scan a guest may see: the book's cover.
+ *
+ * A scan carries the same words the transcript does, so serving every page to
+ * the public tier would hand over the books by another route — the transcript
+ * lockdown would only have moved the leak from JSON to JPEG. A front cover is
+ * the exception worth making: it is how a book is recognised in a list, it is
+ * title and artwork rather than story, and without it the library is a column
+ * of grey rectangles.
+ *
+ * Identified by the `front cover` tag where there is one, since page numbering
+ * is not uniform — some books start at a dedication — and by the lowest page
+ * number otherwise.
+ */
+const coverCache = new Map<string, { page: number | null; at: number }>();
+// Short enough that a re-tagged cover appears without a restart, long enough
+// that a library page load — one image request per book, so ~73 at once —
+// doesn't repeat the lookup for every one of them.
+const COVER_TTL_MS = 5 * 60 * 1000;
+
+export async function getCoverPageNumber(bookName: string): Promise<number | null> {
+  const hit = coverCache.get(bookName);
+  if (hit && Date.now() - hit.at < COVER_TTL_MS) return hit.page;
+
+  const resolved = await resolveCoverPageNumber(bookName);
+  coverCache.set(bookName, { page: resolved, at: Date.now() });
+  return resolved;
+}
+
+async function resolveCoverPageNumber(bookName: string): Promise<number | null> {
+  const book = await getBookByName(bookName);
+  if (!book) return null;
+  const pages = await getPages(book.id);
+  if (pages.length === 0) return null;
+  // Lowest-numbered match rather than the first row returned: a book can carry
+  // the tag more than once (one does — on both page 1 and page 5), and relying
+  // on query order to break that tie would make which scan is public depend on
+  // something no one guarantees.
+  const tagged = pages
+    .filter((p) => parsePageTags(p.tags).includes('front cover'))
+    .map((p) => p.page_number);
+  return tagged.length ? Math.min(...tagged) : Math.min(...pages.map((p) => p.page_number));
 }
 
 /** Inserts a blank page after the given number; returns the new page row. */

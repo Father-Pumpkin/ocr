@@ -190,6 +190,7 @@ export async function analyzeSentiment(input) {
         sections: sectionCoverage,
         sectionsByPageId: {},
         bookPageSpans: {},
+        sectionRanges: {},
         groups: [],
         rows: [],
         coverage: { booksMatched: books.length, textPages: 0, scoredPages: 0, scores: 0, ...extra },
@@ -233,6 +234,17 @@ export async function analyzeSentiment(input) {
         return shell(`No sentiment scores found yet for ${describeScope(books, dims, tagFilter)}` +
             `${sectionCoverage.length ? ' within the selected section(s)' : ''}. ` +
             `Score these scenes first (${textPages} text scene(s) in scope).`, { textPages, scoredPages: 0, scores: 0 });
+    }
+    const titleById = new Map(books.map((b) => [b.id, b.title]));
+    const sectionRanges = {};
+    for (const resolved of resolvedSections) {
+        const perBook = {};
+        for (const [bookId, range] of resolved.ranges) {
+            const title = titleById.get(bookId);
+            if (title)
+                perBook[title] = { first: range.start, last: range.end };
+        }
+        sectionRanges[resolved.label] = perBook;
     }
     const sectionsByPageId = {};
     if (resolvedSections.length) {
@@ -321,6 +333,7 @@ export async function analyzeSentiment(input) {
         sections: sectionCoverage,
         sectionsByPageId,
         bookPageSpans,
+        sectionRanges,
         groups,
         rows,
         coverage: { booksMatched: books.length, textPages, scoredPages, scores: rows.length },

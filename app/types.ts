@@ -305,6 +305,8 @@ export interface AnalyzeResult {
   sectionsByPageId: Record<number, string[]>;
   /** book title → its true first/last page, for a position-in-book axis. */
   bookPageSpans: Record<string, { first: number; last: number }>;
+  /** section label → book title → the scenes that section covers there. */
+  sectionRanges: Record<string, Record<string, { first: number; last: number }>>;
   /** Every score row that survived the filters — what the scatter view plots. */
   rows: ScoreRow[];
   groups: AnalyzeGroup[];

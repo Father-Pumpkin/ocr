@@ -279,8 +279,10 @@ function PageRowItem({ book, page }: { book: string; page: PageRow }) {
       }
     >
       <div className="flex items-center gap-3 sm:gap-4">
+        {/* Guests get the cover and nothing else, so the per-scene thumbnails
+            would be a row of 403s. Show the placeholder rather than asking. */}
         <div className="hidden h-12 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-surface-2 sm:block">
-          {imgOk ? (
+          {imgOk && isMember ? (
             <img
               src={api.pageImageUrl(book, page.page_number)}
               alt=""
