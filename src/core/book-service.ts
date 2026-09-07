@@ -17,6 +17,7 @@ import {
   hasAnyPageImage,
   insertPageAfter,
   deletePage,
+  syncBookPageCount,
   setBookTitle,
   setPageIllustration,
   recordOcrRun,
@@ -248,7 +249,9 @@ export async function insertPageData(
   afterPageNumber: number,
 ): Promise<PageRow> {
   const book = await requireBook(bookName);
-  return insertPageAfter(book.id, afterPageNumber);
+  const page = await insertPageAfter(book.id, afterPageNumber);
+  await syncBookPageCount(book.id);
+  return page;
 }
 
 /** Deletes a page and renumbers the rest. */
@@ -259,6 +262,7 @@ export async function deletePageData(
   const book = await requireBook(bookName);
   const ok = await deletePage(book.id, pageNumber);
   if (!ok) throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
+  await syncBookPageCount(book.id);
 }
 
 /**
@@ -340,6 +344,7 @@ export async function splitPageData(
 
   // Make room: a blank page becomes pageNumber + 1 (later pages shift down).
   await insertPageAfter(book.id, pageNumber);
+  await syncBookPageCount(book.id);
 
   await updatePageTranscription(book.id, pageNumber, leftText, true);
   await updatePageTranscription(book.id, pageNumber + 1, rightText, true);

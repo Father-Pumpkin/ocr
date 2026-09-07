@@ -148,6 +148,16 @@ export interface DatabaseAdapter {
   getBookByName(name: string): Promise<BookRow | undefined>;
   getAllBooks(): Promise<BookRow[]>;
   updateBookStatus(bookId: number, status: string, pageCount?: number): Promise<void>;
+  /**
+   * Set page_count to the number of page rows the book actually has.
+   *
+   * page_count was written once, at ingestion, from the PDF's page count — but
+   * each PDF page is a two-page spread that later gets split, and pages can be
+   * inserted or deleted after that. It drifted on 60 of 72 books here,
+   * understating by as much as 22, which is what the library and the analysis
+   * picker were displaying.
+   */
+  syncBookPageCount(bookId: number): Promise<number>;
   /** Stores a book-level OCR quality verdict ('ok' | 'suspect' | 'bad') and note. */
   setBookQuality(bookId: number, quality: string, note: string | null): Promise<void>;
   /** Updates a book's display title (preserved across re-transcription). */

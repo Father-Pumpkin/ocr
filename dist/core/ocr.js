@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { upsertPage, updatePageTranscription, updateBookStatus, hasExistingTranscription, getBatchJob, updateBatchJobStatus, upsertPageSentiment, recordOcrRun, } from './database.js';
+import { upsertPage, updatePageTranscription, updateBookStatus, syncBookPageCount, hasExistingTranscription, getBatchJob, updateBatchJobStatus, upsertPageSentiment, recordOcrRun, } from './database.js';
 export const DEFAULT_MODEL = 'claude-sonnet-4-6';
 export const AVAILABLE_MODELS = [
     'claude-sonnet-4-6',
@@ -233,7 +233,11 @@ export async function transcribeBookPdf(bookId, bookTitle, pdfBuffer, overwrite,
         process.stderr.write(`[OCR MCP] Stored ${bookTitle} page ${pageNumber}\n`);
         transcribed++;
     }
-    await updateBookStatus(bookId, 'complete', pages.length);
+    await updateBookStatus(bookId, 'complete');
+    // Counted from the page rows rather than from the pages just processed: each
+    // PDF page is a two-page spread that may later be split, and a batch can land
+    // in several parts, so `pages.length` is not the book's page count.
+    await syncBookPageCount(bookId);
     // Auto quality-check the freshly transcribed book (best-effort; dynamic import
     // avoids a static cycle with quality.ts → ocr.ts).
     try {
@@ -311,7 +315,8 @@ export async function checkAndProcessBatch(batchId) {
                     await recordOcrRun(bookId, pageNumber, null, transcription);
                     processedCount++;
                 }
-                await updateBookStatus(bookId, 'complete', pages.length);
+                await updateBookStatus(bookId, 'complete');
+                await syncBookPageCount(bookId);
             }
             else {
                 errors.push(`Could not parse custom_id: ${customId}`);

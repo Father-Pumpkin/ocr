@@ -28,7 +28,7 @@ import type {
 import { Button, Card, ErrorBox, Label, Loading, Spinner, Badge, buttonClass } from '../components/ui';
 import { TagSelect } from '../components/TagSelect';
 import { LexiconUpload } from '../components/LexiconUpload';
-import { ScoreChart } from '../components/ScoreChart';
+import { ScoreChart, type ChartView } from '../components/ScoreChart';
 import { Search, Download, Plus, Upload, Check, Refresh } from '../components/icons';
 import { useIsMember } from '../lib/session';
 
@@ -115,6 +115,27 @@ export function Analysis() {
   // Off: show only the instrument selected above. On: every instrument that has
   // scores for this scope, so a lexicon and Claude can be read side by side.
   const [compareMethods, setCompareMethods] = useState(false);
+  /**
+   * Which chart is on screen. It lives here rather than inside the chart because
+   * each view needs a differently shaped query, and making the user discover
+   * that — set Show to "Every page", tick "Compare all instruments" — meant the
+   * arc and the agreement plot were effectively unreachable. Picking the view
+   * now asks for the data that view needs.
+   */
+  const [view, setView] = useState<ChartView>('compare');
+  const chooseView = (v: ChartView) => {
+    setView(v);
+    if (v === 'arc') {
+      setGroupBy('page');
+      setAggregate('series');
+    } else if (v === 'agree') {
+      setCompareMethods(true);
+      setAggregate('mean');
+    } else {
+      setAggregate('mean');
+    }
+  };
+
   const [showUpload, setShowUpload] = useState(false);
   const [showNewDimension, setShowNewDimension] = useState(false);
   const [batches, setBatches] = useState<SentimentBatch[]>([]);
@@ -262,13 +283,24 @@ export function Analysis() {
     }
   }, [resultsQuery]);
 
-  // Reload the panel whenever its shape changes, but only once results exist —
-  // before the first run there is nothing to show and no reason to ask.
+  /**
+   * Reload the panel whenever *anything* about the query changes.
+   *
+   * This used to watch only groupBy/aggregate/compareMethods, so changing the
+   * scope left the results untouched: selecting three books and still reading
+   * "72 group(s) for 72 books" off the panel below. The controls and the
+   * numbers disagreed, and the numbers looked authoritative.
+   *
+   * Debounced, because the page-range inputs would otherwise fire per keystroke.
+   */
   const hasResults = results !== null;
+  const resultsKey = JSON.stringify(resultsQuery);
   useEffect(() => {
-    if (hasResults) void loadResults();
+    if (!hasResults) return;
+    const timer = setTimeout(() => void loadResults(), 400);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupBy, aggregate, compareMethods]);
+  }, [resultsKey, hasResults]);
 
   // --- Running -------------------------------------------------------------
 
@@ -736,6 +768,8 @@ export function Analysis() {
           onAggregate={setAggregate}
           compareMethods={compareMethods}
           onCompareMethods={setCompareMethods}
+          chartView={view}
+          onChartView={chooseView}
           exportUrl={(f) => api.analysisExportUrl(resultsQuery, f)}
           exportFormats={options.exportFormats}
         />
@@ -1141,6 +1175,8 @@ function ResultsPanel({
   onAggregate,
   compareMethods,
   onCompareMethods,
+  chartView,
+  onChartView,
   exportUrl,
   exportFormats,
 }: {
@@ -1152,6 +1188,8 @@ function ResultsPanel({
   onAggregate: (a: Aggregate | '') => void;
   compareMethods: boolean;
   onCompareMethods: (v: boolean) => void;
+  chartView: ChartView;
+  onChartView: (v: ChartView) => void;
   exportUrl: (f: ExportFormat) => string;
   exportFormats: ExportFormat[];
 }) {
@@ -1239,7 +1277,9 @@ function ResultsPanel({
             {busy && <Spinner className="h-4 w-4 text-muted" />}
           </div>
 
-          {view === 'chart' && <ScoreChart result={results} />}
+          {view === 'chart' && (
+            <ScoreChart result={results} view={chartView} onView={onChartView} />
+          )}
 
           <div className={(view === 'table' ? '' : 'hidden ') + 'mt-4 overflow-x-auto rounded-lg border border-border'}>
             <table className="w-full text-left text-sm">

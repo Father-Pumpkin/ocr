@@ -20,6 +20,7 @@ export async function getAllBooks() { return (await getAdapter()).getAllBooks();
 export async function getBookByDriveId(id) { return (await getAdapter()).getBookByDriveId(id); }
 export async function getBookByName(name) { return (await getAdapter()).getBookByName(name); }
 export async function upsertBook(driveFileId, driveFileName, title) { return (await getAdapter()).upsertBook(driveFileId, driveFileName, title); }
+export async function syncBookPageCount(bookId) { return (await getAdapter()).syncBookPageCount(bookId); }
 export async function updateBookStatus(bookId, status, pageCount) { return (await getAdapter()).updateBookStatus(bookId, status, pageCount); }
 export async function setBookQuality(bookId, quality, note) { return (await getAdapter()).setBookQuality(bookId, quality, note); }
 export async function setBookTitle(bookId, title) { return (await getAdapter()).setBookTitle(bookId, title); }
