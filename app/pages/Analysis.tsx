@@ -114,7 +114,17 @@ export function Analysis() {
   const [aggregate, setAggregate] = useState<Aggregate | ''>('');
   // Off: show only the instrument selected above. On: every instrument that has
   // scores for this scope, so a lexicon and Claude can be read side by side.
-  const [compareMethods, setCompareMethods] = useState(false);
+  /**
+   * Which instruments the chart shows. `null` means "follow the one chosen in
+   * step 1", which is what someone who has not thought about it wants; picking
+   * any chip pins an explicit set.
+   *
+   * This replaced a single "Compare all instruments" checkbox, which only
+   * offered one or all five — so comparing exactly AFINN against iSOL was not
+   * expressible, and turning it on to see a second dictionary dragged in three
+   * more.
+   */
+  const [chartMethods, setChartMethods] = useState<string[] | null>(null);
   /**
    * Which chart is on screen. It lives here rather than inside the chart because
    * each view needs a differently shaped query, and making the user discover
@@ -129,7 +139,14 @@ export function Analysis() {
       setGroupBy('page');
       setAggregate('series');
     } else if (v === 'agree') {
-      setCompareMethods(true);
+      // Needs two to compare. Add a second rather than switching to all five,
+      // so the user's own choice survives.
+      setChartMethods((prev) => {
+        const current = prev ?? (style?.method ? [style.method] : []);
+        if (current.length >= 2) return current;
+        const extra = allInstruments.find((m) => !current.includes(m));
+        return extra ? [...current, extra] : current;
+      });
       setAggregate('mean');
     } else {
       setAggregate('mean');
@@ -256,11 +273,22 @@ export function Analysis() {
 
   // --- Results -------------------------------------------------------------
 
+  /**
+   * Every instrument the chart could show. Taken from the style list rather than
+   * from what the last query happened to return, so an instrument you have not
+   * looked at yet is still offered — the picker doubles as "what else exists".
+   */
+  const allInstruments = useMemo(
+    () => [...new Set((options?.styles ?? []).filter((st) => st.available && st.method).map((st) => st.method!))].sort(),
+    [options],
+  );
+
+  const methodsKey = JSON.stringify(chartMethods);
   const resultsQuery = useMemo(
     () => ({
       books: books.length ? books : undefined,
       dimensions: dimensions.length ? dimensions : undefined,
-      methods: compareMethods || !style?.method ? undefined : [style.method],
+      methods: chartMethods ?? (style?.method ? [style.method] : undefined),
       tags: tags.length ? tags : undefined,
       sections: usableSections.length ? usableSections : undefined,
       pageStart: pageStart ? Number(pageStart) : undefined,
@@ -269,7 +297,7 @@ export function Analysis() {
       aggregate: aggregate || undefined,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [books, dimensions, style?.method, compareMethods, tags, sectionKey, pageStart, pageEnd, groupBy, aggregate],
+    [books, dimensions, style?.method, methodsKey, tags, sectionKey, pageStart, pageEnd, groupBy, aggregate],
   );
 
   const loadResults = useCallback(async () => {
@@ -766,8 +794,9 @@ export function Analysis() {
           aggregate={aggregate}
           onGroupBy={setGroupBy}
           onAggregate={setAggregate}
-          compareMethods={compareMethods}
-          onCompareMethods={setCompareMethods}
+          instruments={allInstruments}
+          selectedInstruments={chartMethods ?? (style?.method ? [style.method] : [])}
+          onInstruments={setChartMethods}
           chartView={view}
           onChartView={chooseView}
           exportUrl={(f) => api.analysisExportUrl(resultsQuery, f)}
@@ -1166,6 +1195,71 @@ function BatchPanel({
   );
 }
 
+/**
+ * Which instruments the chart draws.
+ *
+ * Chips rather than a checkbox because the interesting comparisons are usually
+ * between two named dictionaries, not between one and all of them. An
+ * instrument with no scores in the current slice is dimmed rather than hidden,
+ * so "AFINN has nothing here" is visible instead of the chip silently missing.
+ */
+function InstrumentPicker({
+  all,
+  selected,
+  onChange,
+  present,
+}: {
+  all: string[];
+  selected: string[];
+  onChange: (v: string[] | null) => void;
+  present: string[];
+}) {
+  const toggle = (m: string) => {
+    const next = selected.includes(m) ? selected.filter((x) => x !== m) : [...selected, m];
+    // Never leave it empty: no instrument selected means no chart at all, which
+    // reads as a broken screen rather than a deliberate choice.
+    onChange(next.length ? next : null);
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-sm text-muted">Instruments</span>
+      {all.map((m) => {
+        const on = selected.includes(m);
+        // Only a *selected* instrument can be known to have no scores here.
+        // An unselected one was never asked for, so dimming it would report
+        // absence of data when the truth is absence of a request.
+        const empty = on && !present.includes(m);
+        return (
+          <button
+            key={m}
+            type="button"
+            onClick={() => toggle(m)}
+            title={empty ? `${m} — selected, but it has no scores in this slice` : m}
+            className={
+              'rounded-full border px-2 py-0.5 text-xs ' +
+              (on
+                ? 'border-accent bg-accent-soft text-accent'
+                : 'border-border text-muted hover:text-ink') +
+              (empty ? ' line-through opacity-60' : '')
+            }
+          >
+            {m}
+          </button>
+        );
+      })}
+      {all.length > 1 && (
+        <button
+          type="button"
+          onClick={() => onChange(selected.length === all.length ? null : [...all])}
+          className="text-xs text-accent hover:underline"
+        >
+          {selected.length === all.length ? 'reset' : 'all'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ResultsPanel({
   results,
   busy,
@@ -1173,8 +1267,9 @@ function ResultsPanel({
   aggregate,
   onGroupBy,
   onAggregate,
-  compareMethods,
-  onCompareMethods,
+  instruments,
+  selectedInstruments,
+  onInstruments,
   chartView,
   onChartView,
   exportUrl,
@@ -1186,8 +1281,9 @@ function ResultsPanel({
   aggregate: Aggregate | '';
   onGroupBy: (g: GroupBy | '') => void;
   onAggregate: (a: Aggregate | '') => void;
-  compareMethods: boolean;
-  onCompareMethods: (v: boolean) => void;
+  instruments: string[];
+  selectedInstruments: string[];
+  onInstruments: (v: string[] | null) => void;
   chartView: ChartView;
   onChartView: (v: ChartView) => void;
   exportUrl: (f: ExportFormat) => string;
@@ -1244,18 +1340,12 @@ function ResultsPanel({
                 <option value="series">Every page</option>
               </select>
             </label>
-            <label
-              className="flex items-center gap-2 text-sm text-muted"
-              title="Include every instrument that has scores for this scope, not just the one selected above"
-            >
-              <input
-                type="checkbox"
-                checked={compareMethods}
-                onChange={(e) => onCompareMethods(e.target.checked)}
-                className="accent-[var(--accent)]"
-              />
-              Compare all instruments
-            </label>
+            <InstrumentPicker
+              all={instruments}
+              selected={selectedInstruments}
+              onChange={onInstruments}
+              present={results.methods}
+            />
             {/* Chart by default: the table answers "what is the number", the
                 chart answers "what is the shape", and the shape is the reason
                 to run this over a corpus at all. */}
@@ -1278,7 +1368,7 @@ function ResultsPanel({
           </div>
 
           {view === 'chart' && (
-            <ScoreChart result={results} view={chartView} onView={onChartView} />
+            <ScoreChart result={results} view={chartView} onView={onChartView} instrumentOrder={instruments} />
           )}
 
           <div className={(view === 'table' ? '' : 'hidden ') + 'mt-4 overflow-x-auto rounded-lg border border-border'}>
