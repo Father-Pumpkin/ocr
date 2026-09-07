@@ -189,7 +189,16 @@ export async function analyzeSentiment(input) {
             }
         }
     }
-    groups.sort((a, b) => a.dimension.localeCompare(b.dimension) || a.method.localeCompare(b.method) || a.key.localeCompare(b.key));
+    // Sections keep the order they were defined in. Sorting them alphabetically
+    // would put "climax → denouement" before "inciting incident → climax" and
+    // render a narrative arc backwards; the order the user listed them in is the
+    // order they mean. Everything else is alphabetical.
+    const sectionOrder = new Map(sectionCoverage.map((sc, i) => [sc.label, i]));
+    const keyRank = (key) => groupBy === 'section' ? (sectionOrder.get(key) ?? Number.MAX_SAFE_INTEGER) : 0;
+    groups.sort((a, b) => a.dimension.localeCompare(b.dimension) ||
+        a.method.localeCompare(b.method) ||
+        keyRank(a.key) - keyRank(b.key) ||
+        a.key.localeCompare(b.key));
     const gap = textPages > scoredPages
         ? ` Note: only ${scoredPages}/${textPages} in-scope text page(s) are scored — run score_pages to fill the rest.`
         : '';

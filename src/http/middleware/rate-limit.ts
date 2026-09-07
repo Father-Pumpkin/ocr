@@ -161,11 +161,24 @@ export const LIMITS = {
     guest: { windowMs: MINUTE, max: 10 },
   }),
 
-  /** Scoring runs, prewarming and estimates — CPU, or Anthropic spend. */
+  /** Scoring runs and prewarming — CPU, or Anthropic spend. */
   SCORING: rateLimit({
     name: 'scoring',
     member: { windowMs: MINUTE, max: 20 },
     guest: { windowMs: MINUTE, max: 5 },
+  }),
+
+  /**
+   * Sizing a run before starting it. Deliberately *not* SCORING: the form fires
+   * one of these on every edit — each book ticked, each dimension toggled — so a
+   * scoring-sized budget throttles someone merely filling the form in. It reads
+   * pages and existing scores and spends nothing, so it is priced as a read that
+   * happens to be chattier than most.
+   */
+  ESTIMATES: rateLimit({
+    name: 'estimates',
+    member: { windowMs: MINUTE, max: 120 },
+    guest: { windowMs: MINUTE, max: 60 },
   }),
 
   /** Page images: one per book on the library page, so bursty by nature. */

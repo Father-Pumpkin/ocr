@@ -60,6 +60,16 @@ async function get(pathname: string, cookie: string): Promise<Response> {
   });
 }
 
+async function post(pathname: string, cookie: string, body: unknown): Promise<number> {
+  const res = await fetch(BASE + pathname, {
+    method: 'POST',
+    headers: { Cookie: `${SESSION_COOKIE}=${cookie}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    redirect: 'manual',
+  });
+  return res.status;
+}
+
 /** Fire n requests concurrently, the way a browser loads a page of thumbnails. */
 async function burst(pathname: string, cookie: string, n: number): Promise<number[]> {
   return Promise.all(Array.from({ length: n }, () => get(pathname, cookie).then((r) => r.status)));
@@ -90,7 +100,22 @@ resetRateLimits();
 const reads = await burst('/api/library', guestA, 150);
 check('150 library reads are not throttled', !reads.includes(429));
 
-// 3. Exports are expensive and guests get 10/min.
+// 3. Sizing a run is not running one. The form fires an estimate on every edit —
+// each book ticked, each dimension toggled — so filling it in is a burst of them.
+// This shared the SCORING budget once (guest: 5/min) and throttled a guest before
+// they had finished choosing what to run.
+resetRateLimits();
+const estimates: number[] = [];
+for (let i = 0; i < 20; i++) {
+  estimates.push(await post('/api/analysis/estimate', guestA, { style: 'lexicon:afinn' }));
+}
+check(
+  'a guest filling in the run form is not throttled by 20 estimates',
+  !estimates.includes(429),
+  `statuses: ${[...new Set(estimates)].sort().join(', ')}`,
+);
+
+// 4. Exports are expensive and guests get 10/min.
 resetRateLimits();
 const exportPath = '/api/analysis/export?format=pages.csv';
 const exports: number[] = [];
@@ -102,7 +127,7 @@ check(
   `first 429 at request ${throttledAt + 1}`,
 );
 
-// 4. A 429 must say how long to wait, in a header and in the body.
+// 5. A 429 must say how long to wait, in a header and in the body.
 const blocked = await get(exportPath, guestA);
 const body = (await blocked.json()) as { rateLimited?: boolean; retryAfterSeconds?: number };
 check(
@@ -114,11 +139,11 @@ check(
   `Retry-After=${blocked.headers.get('retry-after')}s`,
 );
 
-// 5. One user's limit must not spend another's.
+// 6. One user's limit must not spend another's.
 const otherGuest = (await get(exportPath, guestB)).status;
 check('a separate guest has their own budget', otherGuest !== 429, `guest B got ${otherGuest}`);
 
-// 6. Members get more headroom than guests on the same endpoint.
+// 7. Members get more headroom than guests on the same endpoint.
 const memberExports: number[] = [];
 for (let i = 0; i < 12; i++) memberExports.push((await get(exportPath, member)).status);
 check(
@@ -127,7 +152,7 @@ check(
   `member ran ${memberExports.length} exports clean`,
 );
 
-// 7. The escape hatch has to actually work.
+// 8. The escape hatch has to actually work.
 resetRateLimits();
 process.env.RATE_LIMIT_DISABLED = '1';
 const unlimited: number[] = [];
@@ -135,7 +160,7 @@ for (let i = 0; i < 15; i++) unlimited.push((await get(exportPath, guestA)).stat
 delete process.env.RATE_LIMIT_DISABLED;
 check('RATE_LIMIT_DISABLED=1 turns limiting off', !unlimited.includes(429));
 
-// 8. And the tightening dial.
+// 9. And the tightening dial.
 resetRateLimits();
 process.env.RATE_LIMIT_FACTOR = '0.2'; // 10/min -> 2/min for guests
 const tightened: number[] = [];
