@@ -41,7 +41,8 @@ const MAX_ROWS = 40;
 /** Above this many lines they merge into a solid band — measured, not guessed. */
 const MAX_LINES = 8;
 
-type View = 'compare' | 'arc' | 'agree';
+export type ChartView = 'compare' | 'arc' | 'agree';
+type View = ChartView;
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -120,7 +121,15 @@ function Note({ children }: { children: React.ReactNode }) {
 // Entry
 // ---------------------------------------------------------------------------
 
-export function ScoreChart({ result }: { result: AnalyzeResult }) {
+export function ScoreChart({
+  result,
+  view,
+  onView,
+}: {
+  result: AnalyzeResult;
+  view: ChartView;
+  onView: (v: ChartView) => void;
+}) {
   const groups = result.groups;
   const methodsPresent = useMemo(
     () => [...new Set((result.rows ?? []).map((r) => r.method_name))].sort(),
@@ -129,7 +138,6 @@ export function ScoreChart({ result }: { result: AnalyzeResult }) {
   const hasSeries = groups.some((g) => (g.points?.length ?? 0) > 0);
   const canAgree = methodsPresent.length > 1;
 
-  const [view, setView] = useState<View>(hasSeries ? 'arc' : 'compare');
   // Which group the reader has opened up. Cleared when the shape of the result
   // changes underneath it, so the panel can never describe a stale selection.
   const [inspect, setInspect] = useState<AnalyzeGroup | null>(null);
@@ -139,7 +147,7 @@ export function ScoreChart({ result }: { result: AnalyzeResult }) {
     setLastKey(resultKey);
     if (inspect) setInspect(null);
   }
-  const effective: View = view === 'arc' && !hasSeries ? 'compare' : view === 'agree' && !canAgree ? 'compare' : view;
+  const effective: View = view;
 
   if (groups.length === 0) {
     return <p className="mt-4 text-sm text-muted">Nothing to plot in this selection.</p>;
@@ -149,28 +157,36 @@ export function ScoreChart({ result }: { result: AnalyzeResult }) {
     <div className="mt-4">
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted">
         <span>View</span>
-        <Chip active={effective === 'compare'} onClick={() => setView('compare')} title="Group averages with 95% confidence intervals">
+        <Chip active={effective === 'compare'} onClick={() => onView('compare')} title="Group averages with 95% confidence intervals">
           Compare groups
         </Chip>
-        <Chip
-          active={effective === 'arc'}
-          onClick={() => hasSeries && setView('arc')}
-          title={hasSeries ? 'Score across the book' : 'Set Show to “Every page” to plot an arc'}
-        >
-          Arc {!hasSeries && '(needs “Every page”)'}
+        <Chip active={effective === 'arc'} onClick={() => onView('arc')} title="Score across the book, page by page">
+          Across the pages
         </Chip>
         <Chip
           active={effective === 'agree'}
-          onClick={() => canAgree && setView('agree')}
-          title={canAgree ? 'Two instruments, page by page' : 'Tick “Compare all instruments” to use this'}
+          onClick={() => onView('agree')}
+          title="Two dictionaries plotted against each other, page by page"
         >
-          Instrument agreement {!canAgree && '(needs 2+)'}
+          Compare instruments
         </Chip>
       </div>
 
       {effective === 'compare' && <DotPlot groups={groups} onInspect={setInspect} inspected={inspect} />}
-      {effective === 'arc' && <ArcChart result={result} onInspect={setInspect} />}
-      {effective === 'agree' && <AgreementChart rows={result.rows ?? []} methods={methodsPresent} />}
+      {effective === 'arc' &&
+        (hasSeries ? (
+          <ArcChart result={result} onInspect={setInspect} />
+        ) : (
+          <p className="text-sm text-muted">Loading per-page scores…</p>
+        ))}
+      {effective === 'agree' &&
+        (canAgree ? (
+          <AgreementChart rows={result.rows ?? []} methods={methodsPresent} />
+        ) : (
+          <p className="text-sm text-muted">
+            Only one instrument has scores for this selection, so there is nothing to compare it against.
+          </p>
+        ))}
 
       {inspect && (
         <ScoreInspector group={inspect} rows={result.rows ?? []} onClose={() => setInspect(null)} />

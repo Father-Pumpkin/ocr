@@ -243,6 +243,12 @@ export class PostgresAdapter {
     `;
         return rows.map(coerceBook);
     }
+    async syncBookPageCount(bookId) {
+        const rows = await this.sql `SELECT COUNT(*)::text AS n FROM pages WHERE book_id = ${bookId}`;
+        const n = Number(rows[0]?.n ?? 0);
+        await this.sql `UPDATE books SET page_count = ${n}, updated_at = NOW() WHERE id = ${bookId}`;
+        return n;
+    }
     async updateBookStatus(bookId, status, pageCount) {
         if (pageCount !== undefined) {
             await this.sql `

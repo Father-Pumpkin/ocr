@@ -320,6 +320,11 @@ export class SqliteAdapter {
     async getAllBooks() {
         return Promise.resolve(this.db.prepare('SELECT * FROM books ORDER BY title').all());
     }
+    async syncBookPageCount(bookId) {
+        const row = this.db.prepare('SELECT COUNT(*) AS n FROM pages WHERE book_id = ?').get(bookId);
+        this.db.prepare('UPDATE books SET page_count = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(row.n, bookId);
+        return row.n;
+    }
     async updateBookStatus(bookId, status, pageCount) {
         if (pageCount !== undefined) {
             this.db.prepare(`

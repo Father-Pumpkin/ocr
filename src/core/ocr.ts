@@ -3,6 +3,7 @@ import {
   upsertPage,
   updatePageTranscription,
   updateBookStatus,
+  syncBookPageCount,
   hasExistingTranscription,
   createBatchJob,
   getBatchJob,
@@ -290,7 +291,11 @@ export async function transcribeBookPdf(
     transcribed++;
   }
 
-  await updateBookStatus(bookId, 'complete', pages.length);
+  await updateBookStatus(bookId, 'complete');
+  // Counted from the page rows rather than from the pages just processed: each
+  // PDF page is a two-page spread that may later be split, and a batch can land
+  // in several parts, so `pages.length` is not the book's page count.
+  await syncBookPageCount(bookId);
 
   // Auto quality-check the freshly transcribed book (best-effort; dynamic import
   // avoids a static cycle with quality.ts → ocr.ts).
@@ -403,7 +408,8 @@ export async function checkAndProcessBatch(batchId: string): Promise<{
           await recordOcrRun(bookId, pageNumber, null, transcription);
           processedCount++;
         }
-        await updateBookStatus(bookId, 'complete', pages.length);
+        await updateBookStatus(bookId, 'complete');
+        await syncBookPageCount(bookId);
       } else {
         errors.push(`Could not parse custom_id: ${customId}`);
       }

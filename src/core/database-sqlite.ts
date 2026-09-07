@@ -361,6 +361,12 @@ export class SqliteAdapter implements DatabaseAdapter {
     );
   }
 
+  async syncBookPageCount(bookId: number): Promise<number> {
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM pages WHERE book_id = ?').get(bookId) as { n: number };
+    this.db.prepare('UPDATE books SET page_count = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(row.n, bookId);
+    return row.n;
+  }
+
   async updateBookStatus(bookId: number, status: string, pageCount?: number): Promise<void> {
     if (pageCount !== undefined) {
       this.db.prepare(`

@@ -314,22 +314,37 @@ server.tool('delete_dimension', 'Deletes a sentiment dimension and all associate
         return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
     }
 });
+/**
+ * A page range named by the structural tags that bound it, resolved separately
+ * in each book — "from the inciting incident to the climax". Both ends are
+ * inclusive; omit either to mean the edge of the book. See core/sections.
+ */
+const sectionShape = z.object({
+    start_tag: z.string().optional().describe('Tag marking the first page of the section. Omit for the start of the book.'),
+    end_tag: z.string().optional().describe('Tag marking the last page of the section. Omit for the end of the book.'),
+    name: z.string().optional().describe('Display label. Defaults to "<start> → <end>".'),
+});
+const toSections = (raw) => (raw ?? [])
+    .map((s) => ({ startTag: s.start_tag ?? null, endTag: s.end_tag ?? null, name: s.name }))
+    .filter((s) => s.startTag || s.endTag);
 // ---- Tool: score_pages ------------------------------------------------------
 server.tool('score_pages', 'Scores book pages on one or more sentiment dimensions with a chosen method and caches the scores (what charts are built from). Lexicon methods run locally and instantly; LLM methods score small scopes inline and submit large scopes to the Anthropic Batch API (call check_batch later). Pages already scored for a (dimension, method) are skipped unless overwrite is set. Define dimensions with create_dimension; see list_methods for available methods.', {
     books: z.array(z.string()).optional().default([]).describe('Book filenames/titles to score. Empty = all transcribed books.'),
     dimensions: z.array(z.string()).optional().default([]).describe('Dimension names to score on (see list_dimensions). Empty = all defined dimensions.'),
     method: z.string().optional().default('claude-default').describe('Scoring method name (see list_methods). Defaults to the built-in Claude scorer.'),
+    sections: z.array(sectionShape).optional().default([]).describe('Tag-bounded sections, resolved per book — score only the pages inside them. Scoping an LLM run this way is the cheapest way to cover a narrative beat across the corpus.'),
     page_start: z.number().int().positive().optional().describe('First page to score (inclusive, 1-based).'),
     page_end: z.number().int().positive().optional().describe('Last page to score (inclusive, 1-based).'),
     mode: z.enum(['auto', 'inline', 'batch']).optional().default('auto').describe("LLM methods only: 'auto' scores inline for small scopes and uses the Batch API for large; force 'inline' or 'batch'. (Lexicon methods always run locally.)"),
     overwrite: z.boolean().optional().default(false).describe('Re-score pages that already have a score for this dimension+method.'),
     model: z.enum(AVAILABLE_MODELS).optional().default(DEFAULT_MODEL).describe('LLM methods: Claude model to use when the method does not pin one.'),
-}, async ({ books, dimensions, method, page_start, page_end, mode, overwrite, model }) => {
+}, async ({ books, dimensions, method, sections, page_start, page_end, mode, overwrite, model }) => {
     try {
         const result = await scorePages({
             bookNames: books,
             dimensionNames: dimensions,
             method,
+            sections: toSections(sections),
             pageStart: page_start,
             pageEnd: page_end,
             mode,
@@ -357,23 +372,25 @@ server.tool('score_pages', 'Scores book pages on one or more sentiment dimension
     }
 });
 // ---- Tool: chart_sentiment --------------------------------------------------
-server.tool('chart_sentiment', 'Returns aggregated sentiment data ready to chart — a per-page series (narrative arc) or grouped means (bars) — for a flexible slice: a whole book, tags within a book, several books compared, a tag across books, or one method vs another. Scores are partitioned by method, so multiple scoring methods overlay as distinct series/bars. Render the returned structuredContent as a chart artifact for the user. Set render_png to also get a server-rendered PNG. Pages must be scored first with score_pages.', {
+server.tool('chart_sentiment', 'Returns aggregated sentiment data ready to chart — a per-page series (narrative arc) or grouped means (bars) — for a flexible slice: a whole book, tags within a book, several books compared, a tag across books, tag-bounded sections such as "inciting incident to climax", or one method vs another. Every group carries dispersion alongside its mean (sd, median, quartiles, 95% CI half-width, how many distinct books it spans, and how much of it is pinned at 0 or 1) — quote those when a difference looks meaningful, since most differences in a corpus like this are inside their confidence intervals. Scores are partitioned by method, so multiple scoring methods overlay as distinct series/bars. Render the returned structuredContent as a chart artifact for the user. Set render_png to also get a server-rendered PNG. Pages must be scored first with score_pages.', {
     books: z.array(z.string()).optional().default([]).describe('Book filenames/titles. Empty = all transcribed books.'),
     dimensions: z.array(z.string()).optional().default([]).describe('Dimension names (see list_dimensions). Empty = all dimensions.'),
     methods: z.array(z.string()).optional().default([]).describe('Scoring methods to include/compare (see list_methods). Empty = all methods that have scores.'),
     tags: z.array(z.string()).optional().default([]).describe('Restrict to pages carrying any of these tags; also the group keys when group_by is "tag" or "book_tag".'),
-    group_by: z.enum(['page', 'book', 'tag', 'book_tag', 'method']).optional().describe('How to bucket pages. Default: "page" for a single book, "book" for several. Use "method" to compare instruments.'),
+    sections: z.array(sectionShape).optional().default([]).describe('Tag-bounded page ranges resolved per book, e.g. { start_tag: "inciting incident", end_tag: "climax" }. Supplying any restricts the slice to their union; with group_by "section" each becomes its own bar. Books missing a marker are skipped, and the returned sections[] reports how many resolved.'),
+    group_by: z.enum(['page', 'book', 'tag', 'book_tag', 'method', 'section', 'book_section']).optional().describe('How to bucket pages. Default: "page" for a single book, "book" for several. "method" compares instruments; "section" compares tag-bounded ranges; "book_section" crosses the two, which is how to tell whether a corpus-level arc holds per book or is an average over books that disagree.'),
     aggregate: z.enum(['series', 'mean']).optional().describe('"series" = per-page points (arc); "mean" = one average per group (bars). Default follows group_by.'),
     page_start: z.number().int().positive().optional().describe('First page (inclusive, 1-based).'),
     page_end: z.number().int().positive().optional().describe('Last page (inclusive, 1-based).'),
     render_png: z.boolean().optional().default(false).describe('Also return a server-rendered PNG chart image.'),
-}, async ({ books, dimensions, methods, tags, group_by, aggregate, page_start, page_end, render_png }) => {
+}, async ({ books, dimensions, methods, tags, sections, group_by, aggregate, page_start, page_end, render_png }) => {
     try {
         const result = await analyzeSentiment({
             bookNames: books,
             dimensionNames: dimensions,
             methods,
             tags,
+            sections: toSections(sections),
             groupBy: group_by,
             aggregate,
             pageStart: page_start,
@@ -392,6 +409,14 @@ server.tool('chart_sentiment', 'Returns aggregated sentiment data ready to chart
                 books: result.books,
                 methods: result.methods,
                 tags: result.tags,
+                // Per-section coverage: a section bounded by a rare marker resolves in
+                // only a handful of books, which is the likeliest reason a slice looks
+                // thinner than expected.
+                sections: result.sections,
+                // Each group carries stats (sd, median, quartiles, 95% CI half-width,
+                // distinct books, share of scores pinned at 0/1) alongside its mean.
+                // Say so when reading these out: several of these instruments are
+                // near-binary, and a mean over 3 pages is not a mean over 40.
                 groups: result.groups,
                 coverage: result.coverage,
                 summary: result.summary,

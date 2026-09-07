@@ -6,7 +6,7 @@
  * primitives directly. Tools that return formatted text strings stay where they
  * are; this module is for structured-data operations that any UI can consume.
  */
-import { getAllBooks, getBookByName, getPages, updatePageTranscription, setPageTags, getAllTags, hasAnyPageImage, insertPageAfter, deletePage, setBookTitle, setPageIllustration, recordOcrRun, getOcrRuns, } from './database.js';
+import { getAllBooks, getBookByName, getPages, updatePageTranscription, setPageTags, getAllTags, hasAnyPageImage, insertPageAfter, deletePage, syncBookPageCount, setBookTitle, setPageIllustration, recordOcrRun, getOcrRuns, } from './database.js';
 import { listPdfsInFolder, downloadPdf } from './google-drive.js';
 import { renderAllPdfPages } from './render-pdf.js';
 import { readPageImageBase64, writePageImageBase64, imageRenderScale } from './image-service.js';
@@ -180,7 +180,9 @@ export async function getPageOcrRunsData(bookName, pageNumber) {
 /** Inserts a blank page after the given number; returns the new page row. */
 export async function insertPageData(bookName, afterPageNumber) {
     const book = await requireBook(bookName);
-    return insertPageAfter(book.id, afterPageNumber);
+    const page = await insertPageAfter(book.id, afterPageNumber);
+    await syncBookPageCount(book.id);
+    return page;
 }
 /** Deletes a page and renumbers the rest. */
 export async function deletePageData(bookName, pageNumber) {
@@ -188,6 +190,7 @@ export async function deletePageData(bookName, pageNumber) {
     const ok = await deletePage(book.id, pageNumber);
     if (!ok)
         throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
+    await syncBookPageCount(book.id);
 }
 /**
  * Stores/replaces the cached image for a page. Accepts base64 with or without a
@@ -251,6 +254,7 @@ export async function splitPageData(bookName, pageNumber, leftText, rightText, r
     }
     // Make room: a blank page becomes pageNumber + 1 (later pages shift down).
     await insertPageAfter(book.id, pageNumber);
+    await syncBookPageCount(book.id);
     await updatePageTranscription(book.id, pageNumber, leftText, true);
     await updatePageTranscription(book.id, pageNumber + 1, rightText, true);
     if (leftImg)
