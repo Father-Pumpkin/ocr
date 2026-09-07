@@ -132,7 +132,15 @@ export function Analysis() {
           : opts.styles.find((s) => s.family === 'bag_of_words' && s.available);
         setStyleId((prev) => prev || first?.id || '');
         if (!isMember && first?.family === 'bag_of_words') setFamily('bag_of_words');
-        setDimensions((prev) => (prev.length ? prev : opts.dimensions.slice(0, 1).map((d) => d.name)));
+        // Default to a dimension the starting instrument can actually measure.
+        // Taking dimensions[0] blindly lands a bag-of-words style on an LLM-only
+        // construct, where the run scores nothing and the results panel is empty
+        // — which reads as a broken page rather than a mismatched selection.
+        const covered = first?.lexicon?.dimensions ?? [];
+        const fallback = opts.dimensions[0]?.name;
+        const start =
+          covered.find((name) => opts.dimensions.some((d) => d.name === name)) ?? fallback;
+        setDimensions((prev) => (prev.length ? prev : start ? [start] : []));
       })
       .catch((e) => setLoadError(e instanceof ApiError ? e.message : String(e)));
   }, [reloadOptions, isMember]);
@@ -168,8 +176,9 @@ export function Analysis() {
   // Size the run whenever the selection settles. Debounced because typing a page
   // range would otherwise fire a request per keystroke.
   const estimateKey = JSON.stringify(runRequest);
+  const mayRunStyle = isMember || style?.family === 'bag_of_words';
   useEffect(() => {
-    if (!styleId || !style?.available || !isMember) {
+    if (!styleId || !style?.available || !mayRunStyle) {
       setEstimate(null);
       return;
     }
@@ -193,7 +202,7 @@ export function Analysis() {
     };
     // runRequest is rebuilt each render; estimateKey is its stable identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estimateKey, style?.available, isMember]);
+  }, [estimateKey, style?.available, mayRunStyle]);
 
   // --- Results -------------------------------------------------------------
 
@@ -316,9 +325,19 @@ export function Analysis() {
       ? estimate.batchCapExceeded
       : estimate.capExceeded
     : false;
+  // A lexicon has terms only for the dimensions it was imported against, and
+  // LexiconScorer returns null for anything else — so a mismatched pair runs to
+  // completion and stores nothing. The estimate can't see this (it counts pages,
+  // not coverage), so catch it here rather than let the run look successful.
+  const uncovered =
+    style?.family === 'bag_of_words' && style.lexicon
+      ? dimensions.filter((name) => !style.lexicon!.dimensions.includes(name))
+      : [];
+
   const canRun =
     !!style?.available &&
     dimensions.length > 0 &&
+    uncovered.length === 0 &&
     !running &&
     !!estimate &&
     !estimate.problem &&
@@ -578,17 +597,19 @@ export function Analysis() {
         </div>
       </Section>
 
-      {/* ---- Run (members) / explanation (guests) ---- */}
-      {!isMember && (
+      {/* ---- Run ---- */}
+      {/* Guests may run dictionaries (local, free, deterministic) but not Claude;
+          the server enforces the same split in routes/analysis.ts. */}
+      {!isMember && family === 'llm' && (
         <Card className="p-5">
           <p className="text-sm text-muted">
-            Running new analyses is limited to approved accounts — scores are shared research data, and the
-            LLM instruments cost money per page. Everything already scored is yours to slice and download
-            below.
+            Claude-scored analyses are limited to approved accounts — they cost money per page. Switch to{' '}
+            <strong className="text-ink">Bag of words</strong> to run a dictionary yourself, or browse and
+            download everything already scored below.
           </p>
         </Card>
       )}
-      {isMember && (
+      {(isMember || family === 'bag_of_words') && (
       <Card className="p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <EstimateLine
@@ -603,6 +624,16 @@ export function Analysis() {
             {running ? 'Running…' : effectiveMode === 'batch' ? 'Submit batch' : 'Run analysis'}
           </Button>
         </div>
+
+        {uncovered.length > 0 && style?.lexicon && (
+          <p className="mt-3 text-sm text-warn">
+            <strong className="text-ink">{style.label}</strong> has no terms for{' '}
+            {uncovered.map((n) => `“${n}”`).join(', ')} — a dictionary can only measure the construct it
+            was imported against, so this run would score nothing. Pick{' '}
+            {style.lexicon.dimensions.map((n) => `“${n}”`).join(' or ')}, or switch to an LLM style to
+            measure {uncovered.length === 1 ? 'that construct' : 'those constructs'}.
+          </p>
+        )}
 
         {estimate && estimate.kind !== 'lexicon' && estimate.pairs > 0 && (
           <ModeSelector

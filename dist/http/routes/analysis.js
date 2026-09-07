@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getAnalysisOptions, estimateRun, startRun, getRun, listRuns, getResults, exportResults, createDimensionData, updateDimensionData, deleteDimensionData, inspectLexicon, uploadLexicon, deleteLexiconData, deleteMethodData, listSentimentBatches, checkSentimentBatch, prewarmLexicons, seedLexiconsFromDisk, AnalysisInputError, } from '../../core/analysis-service.js';
 import { requireMember } from '../middleware/require-auth.js';
 import { LIMITS } from '../middleware/rate-limit.js';
+import { getMethodByName } from '../../core/database.js';
 /**
  * Sentiment analysis API for the web app: pick a style, pick a scope, run it,
  * read the results, download them. Scoring runs are started here and polled —
@@ -9,10 +10,69 @@ import { LIMITS } from '../middleware/rate-limit.js';
  *
  * Reading the analysis — options, results, exports — is open to any signed-in
  * account, which is the point of the public tier: guests slice and download the
- * pre-computed scores. Everything that writes to page_sentiment, spends API
- * budget, or changes the shared instrument set is member-only.
+ * pre-computed scores. Everything that spends API budget or changes the shared
+ * instrument set is member-only.
+ *
+ * Bag-of-words runs are the one exception: see allowGuestLexiconRuns.
  */
 export const analysisRouter = Router();
+/**
+ * Scoring gate that lets guests run dictionary-based instruments.
+ *
+ * The reason to draw the line at "lexicon" rather than at "member" is that a
+ * lexicon run is deterministic: the same dictionary over the same page text
+ * always yields the same number, so a guest writing a score writes exactly the
+ * value a member would have written. It fills the cache rather than changing
+ * shared research data, costs no API budget, and runs locally in milliseconds.
+ * Without this, the public tier can only ever see what someone else thought to
+ * pre-compute — which defeats the point of offering five comparable dictionaries.
+ *
+ * Guests are still held to three conditions, each of which would break the
+ * determinism argument:
+ *
+ *   - **No LLM styles.** They spend money and their output isn't reproducible.
+ *   - **No `overwrite`.** Re-scoring is how an existing value *changes*; without
+ *     it a guest can only fill in pairs that have no score yet.
+ *   - **No custom rubric.** Rubrics only apply to LLM styles, but a guest
+ *     sending one alongside a lexicon style would have it silently saved as a
+ *     reusable named method.
+ *
+ * Uploading a dictionary stays member-only, so the set of instruments a guest
+ * can run is exactly the set an approved account has already vetted.
+ */
+async function allowGuestLexiconRuns(req, res, next) {
+    const user = req.user;
+    if (user?.role === 'member') {
+        next();
+        return;
+    }
+    const body = (req.body ?? {});
+    const style = typeof body.style === 'string' ? body.style : '';
+    const [prefix, rest] = [style.slice(0, style.indexOf(':')), style.slice(style.indexOf(':') + 1)];
+    // A saved `method:` style can be either kind, so it needs a lookup; a
+    // `lexicon:` style is a loaded dictionary by construction.
+    let isLexicon = prefix === 'lexicon';
+    if (prefix === 'method' && rest) {
+        isLexicon = (await getMethodByName(rest))?.kind === 'lexicon';
+    }
+    const refuse = (reason) => {
+        res.status(403).json({ error: reason, memberRequired: true });
+    };
+    if (!isLexicon) {
+        refuse('Claude-scored analyses are limited to approved accounts, because they cost money per page. ' +
+            'You can run any of the bag-of-words dictionaries, and browse or download everything already scored.');
+        return;
+    }
+    if (body.overwrite) {
+        refuse('Re-scoring pages that already have a score is limited to approved accounts.');
+        return;
+    }
+    if (body.rubric) {
+        refuse('Saving a custom rubric is limited to approved accounts.');
+        return;
+    }
+    next();
+}
 function handleError(err, res) {
     if (err instanceof AnalysisInputError) {
         res.status(400).json({ error: err.message });
@@ -91,7 +151,7 @@ analysisRouter.get('/analysis/options', async (_req, res) => {
     }
 });
 // POST /api/analysis/estimate — size a run (pages, calls, cap) before committing
-analysisRouter.post('/analysis/estimate', requireMember, LIMITS.SCORING, async (req, res) => {
+analysisRouter.post('/analysis/estimate', allowGuestLexiconRuns, LIMITS.SCORING, async (req, res) => {
     try {
         res.json(await estimateRun(runRequestFromBody(req.body)));
     }
@@ -100,7 +160,7 @@ analysisRouter.post('/analysis/estimate', requireMember, LIMITS.SCORING, async (
     }
 });
 // POST /api/analysis/runs — start scoring; returns immediately, poll for progress
-analysisRouter.post('/analysis/runs', requireMember, LIMITS.SCORING, async (req, res) => {
+analysisRouter.post('/analysis/runs', allowGuestLexiconRuns, LIMITS.SCORING, async (req, res) => {
     try {
         res.status(202).json({ run: await startRun(runRequestFromBody(req.body)) });
     }
@@ -113,7 +173,7 @@ analysisRouter.get('/analysis/runs', requireMember, (_req, res) => {
     res.json({ runs: listRuns() });
 });
 // GET /api/analysis/runs/:id — progress for one run
-analysisRouter.get('/analysis/runs/:id', requireMember, (req, res) => {
+analysisRouter.get('/analysis/runs/:id', (req, res) => {
     const run = getRun(str(req.params.id));
     if (!run) {
         res.status(404).json({ error: 'That run is no longer available. Any scores it produced are still saved.' });
