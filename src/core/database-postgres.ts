@@ -48,6 +48,7 @@ interface PgBatchJobRow {
   batch_id: string;
   book_ids: unknown; // JSONB — comes back as parsed JS value
   kind: string;
+  scope: string | null;
   status: string;
   created_by: string | null;
   created_at: Date;
@@ -120,6 +121,7 @@ function coerceBatchJob(row: PgBatchJobRow): BatchJobRow {
   return {
     ...row,
     book_ids: JSON.stringify(row.book_ids ?? []),
+    scope: row.scope ?? null,
     created_at: row.created_at.toISOString(),
     completed_at: row.completed_at ? row.completed_at.toISOString() : null,
   };
@@ -309,6 +311,8 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     // Distinguish OCR batches from sentiment-scoring batches so resume routes correctly
     await this.sql`ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'ocr'`;
+    // What a sentiment batch measured — see the sqlite migration for why.
+    await this.sql`ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS scope TEXT`;
 
     // Sentiment scoring methods: seed the default LLM method, make `method` a
     // first-class axis on page_sentiment (page+dimension+method), and migrate the
@@ -517,11 +521,11 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   // ---- Batch job helpers ----
 
-  async createBatchJob(batchId: string, bookIds: number[], kind = 'ocr'): Promise<BatchJobRow> {
+  async createBatchJob(batchId: string, bookIds: number[], kind = 'ocr', scope?: string): Promise<BatchJobRow> {
     const createdBy = process.env.APP_USER_ID ?? null;
     const rows = await this.sql<PgBatchJobRow[]>`
-      INSERT INTO batch_jobs (batch_id, book_ids, kind, created_by)
-      VALUES (${batchId}, ${this.sql.json(bookIds)}, ${kind}, ${createdBy})
+      INSERT INTO batch_jobs (batch_id, book_ids, kind, scope, created_by)
+      VALUES (${batchId}, ${this.sql.json(bookIds)}, ${kind}, ${scope ?? null}, ${createdBy})
       RETURNING *
     `;
     return coerceBatchJob(rows[0]);

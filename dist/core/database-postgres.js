@@ -21,6 +21,7 @@ function coerceBatchJob(row) {
     return {
         ...row,
         book_ids: JSON.stringify(row.book_ids ?? []),
+        scope: row.scope ?? null,
         created_at: row.created_at.toISOString(),
         completed_at: row.completed_at ? row.completed_at.toISOString() : null,
     };
@@ -190,6 +191,8 @@ export class PostgresAdapter {
         await this.sql `ALTER TABLE page_images ADD COLUMN IF NOT EXISTS object_key TEXT`;
         // Distinguish OCR batches from sentiment-scoring batches so resume routes correctly
         await this.sql `ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'ocr'`;
+        // What a sentiment batch measured — see the sqlite migration for why.
+        await this.sql `ALTER TABLE batch_jobs ADD COLUMN IF NOT EXISTS scope TEXT`;
         // Sentiment scoring methods: seed the default LLM method, make `method` a
         // first-class axis on page_sentiment (page+dimension+method), and migrate the
         // old 2-column unique. Idempotent and safe on both fresh and existing DBs.
@@ -377,11 +380,11 @@ export class PostgresAdapter {
         return rows.length > 0 && rows[0].transcription != null && rows[0].transcription !== '';
     }
     // ---- Batch job helpers ----
-    async createBatchJob(batchId, bookIds, kind = 'ocr') {
+    async createBatchJob(batchId, bookIds, kind = 'ocr', scope) {
         const createdBy = process.env.APP_USER_ID ?? null;
         const rows = await this.sql `
-      INSERT INTO batch_jobs (batch_id, book_ids, kind, created_by)
-      VALUES (${batchId}, ${this.sql.json(bookIds)}, ${kind}, ${createdBy})
+      INSERT INTO batch_jobs (batch_id, book_ids, kind, scope, created_by)
+      VALUES (${batchId}, ${this.sql.json(bookIds)}, ${kind}, ${scope ?? null}, ${createdBy})
       RETURNING *
     `;
         return coerceBatchJob(rows[0]);

@@ -263,10 +263,20 @@ function PageRowItem({ book, page }: { book: string; page: PageRow }) {
   const suspect = page.ocr_quality === 'suspect';
   const [imgOk, setImgOk] = useState(true);
 
+  // The single-scene view is a member surface: it exists to read and edit one
+  // scene closely, and a guest has nothing to do there. Rows stay visible — the
+  // structure of a book is public — but they stop being links.
+  const Row = isMember ? Link : 'div';
+  const rowProps = isMember
+    ? { to: `/book/${encodeURIComponent(book)}/page/${page.page_number}` }
+    : {};
+
   return (
-    <Link
-      to={`/book/${encodeURIComponent(book)}/page/${page.page_number}`}
-      className="block px-3 py-3 transition-colors hover:bg-surface-2 sm:px-4"
+    <Row
+      {...(rowProps as { to: string })}
+      className={
+        'block px-3 py-3 sm:px-4' + (isMember ? ' transition-colors hover:bg-surface-2' : '')
+      }
     >
       <div className="flex items-center gap-3 sm:gap-4">
         <div className="hidden h-12 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-surface-2 sm:block">
@@ -309,7 +319,7 @@ function PageRowItem({ book, page }: { book: string; page: PageRow }) {
       {suspect && page.ocr_quality_reason && (
         <p className="mt-1.5 pl-10 text-xs leading-snug text-warn sm:pl-[5.5rem]">{page.ocr_quality_reason}</p>
       )}
-    </Link>
+    </Row>
   );
 }
 

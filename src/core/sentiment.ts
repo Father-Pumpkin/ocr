@@ -395,7 +395,15 @@ export async function scorePages(input: ScorePagesInput): Promise<ScorePagesResu
       promptOverride: cfg.prompt,
     }));
     const batchId = await createSentimentBatch(batchItems, llmModel);
-    await createBatchJob(batchId, books.map((b) => b.id), 'sentiment');
+    await createBatchJob(
+      batchId,
+      books.map((b) => b.id),
+      'sentiment',
+      // Recorded now because it cannot be recovered later: the results land in
+      // page_sentiment keyed by method and dimension, and nothing on the batch
+      // row said which those were.
+      JSON.stringify({ method: method.name, dimensions: dims.map((d) => d.name) }),
+    );
     return {
       ...base,
       mode: 'batch',

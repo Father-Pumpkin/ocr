@@ -430,12 +430,26 @@ function toSentimentBatch(row) {
     catch {
         /* malformed book_ids — the count is cosmetic */
     }
+    // Older sentiment batches predate the scope column, so this is best-effort:
+    // the panel says what it knows and stays quiet about what it does not.
+    let method = null;
+    let dimensions = [];
+    try {
+        const scope = row.scope ? JSON.parse(row.scope) : null;
+        method = scope?.method ?? null;
+        dimensions = Array.isArray(scope?.dimensions) ? scope.dimensions : [];
+    }
+    catch {
+        /* malformed scope — the panel degrades to the old, scopeless display */
+    }
     return {
         batchId: row.batch_id,
         status: row.status,
         createdAt: row.created_at,
         completedAt: row.completed_at,
         bookCount,
+        method,
+        dimensions,
     };
 }
 export async function listSentimentBatches(limit = 20) {

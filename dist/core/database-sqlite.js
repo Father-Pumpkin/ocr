@@ -195,6 +195,16 @@ export class SqliteAdapter {
         catch {
             // Column already exists — no-op
         }
+        // What a sentiment batch was measuring. Without it a finished batch can say
+        // only that it finished: the row carries book ids and a status, so the panel
+        // could not tell anyone which instrument or dimension the results landed
+        // under, and there was no way from "complete" to the numbers.
+        try {
+            this.db.exec(`ALTER TABLE batch_jobs ADD COLUMN scope TEXT`);
+        }
+        catch {
+            // Column already exists — no-op
+        }
         // Preserve the first OCR result for research. Add the column, then backfill
         // un-edited rows (their current text == the original). Edited rows are left
         // NULL since their true original is unrecoverable.
@@ -456,11 +466,11 @@ export class SqliteAdapter {
         return Promise.resolve(!!(row?.transcription));
     }
     // ---- Batch job helpers ----
-    async createBatchJob(batchId, bookIds, kind = 'ocr') {
+    async createBatchJob(batchId, bookIds, kind = 'ocr', scope) {
         const createdBy = process.env.APP_USER_ID ?? null;
         this.db.prepare(`
-      INSERT INTO batch_jobs (batch_id, book_ids, kind, created_by) VALUES (?, ?, ?, ?)
-    `).run(batchId, JSON.stringify(bookIds), kind, createdBy);
+      INSERT INTO batch_jobs (batch_id, book_ids, kind, scope, created_by) VALUES (?, ?, ?, ?, ?)
+    `).run(batchId, JSON.stringify(bookIds), kind, scope ?? null, createdBy);
         return Promise.resolve(this.db.prepare('SELECT * FROM batch_jobs WHERE batch_id = ?').get(batchId));
     }
     async getBatchJob(batchId) {
