@@ -4,6 +4,7 @@ import { GROUP_BY_VALUES, AGGREGATE_VALUES, } from '../../core/sentiment-analysi
 import { requireMember } from '../middleware/require-auth.js';
 import { LIMITS } from '../middleware/rate-limit.js';
 import { getMethodByName } from '../../core/database.js';
+import { explainPageScore, ExplainError } from '../../core/explain.js';
 /**
  * Sentiment analysis API for the web app: pick a style, pick a scope, run it,
  * read the results, download them. Scoring runs are started here and polled —
@@ -253,6 +254,29 @@ analysisRouter.get('/analysis/results', async (req, res) => {
         res.json(await getResults(analyzeInputFromQuery(req)));
     }
     catch (err) {
+        handleError(err, res);
+    }
+});
+// GET /api/analysis/explain — why one page scored what it did, term by term.
+// A read like any other: open to guests, and it spends nothing.
+analysisRouter.get('/analysis/explain', async (req, res) => {
+    try {
+        const pageNumber = posInt(req.query.page);
+        if (!pageNumber)
+            throw new AnalysisInputError('A page number is required.');
+        res.json(await explainPageScore({
+            book: str(req.query.book),
+            pageNumber,
+            method: str(req.query.method),
+            dimension: str(req.query.dimension),
+            negation: str(req.query.negation) === '1',
+        }));
+    }
+    catch (err) {
+        if (err instanceof ExplainError) {
+            res.status(404).json({ error: err.message });
+            return;
+        }
         handleError(err, res);
     }
 });

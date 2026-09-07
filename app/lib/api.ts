@@ -4,6 +4,7 @@ import type {
   OcrRun,
   AnalysisOptions,
   AnalysisQuery,
+  ScoreExplanation,
   AnalysisRun,
   AnalyzeResult,
   DimensionRow,
@@ -282,6 +283,12 @@ export const api = {
 
   getAnalysisResults: (q: AnalysisQuery) =>
     request<AnalyzeResult>(`/api/analysis/results?${analysisQuery(q)}`),
+
+  /** Why one page scored what it did — the words the dictionary matched. */
+  explainScore: (q: { book: string; page: number; method: string; dimension: string }) =>
+    request<ScoreExplanation>(
+      `/api/analysis/explain?book=${enc(q.book)}&page=${q.page}&method=${enc(q.method)}&dimension=${enc(q.dimension)}`,
+    ),
 
   /** Download href — a plain link so the browser handles the file save. */
   analysisExportUrl: (q: AnalysisQuery, format: ExportFormat) =>

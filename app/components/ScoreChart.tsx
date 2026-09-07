@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { AnalyzeResult, AnalyzeGroup, ScoreRow } from '../types';
+import { ScoreInspector } from './ScoreInspector';
 
 /**
  * The results, drawn.
@@ -129,6 +130,15 @@ export function ScoreChart({ result }: { result: AnalyzeResult }) {
   const canAgree = methodsPresent.length > 1;
 
   const [view, setView] = useState<View>(hasSeries ? 'arc' : 'compare');
+  // Which group the reader has opened up. Cleared when the shape of the result
+  // changes underneath it, so the panel can never describe a stale selection.
+  const [inspect, setInspect] = useState<AnalyzeGroup | null>(null);
+  const resultKey = `${result.groupBy}:${result.aggregate}:${groups.length}`;
+  const [lastKey, setLastKey] = useState(resultKey);
+  if (lastKey !== resultKey) {
+    setLastKey(resultKey);
+    if (inspect) setInspect(null);
+  }
   const effective: View = view === 'arc' && !hasSeries ? 'compare' : view === 'agree' && !canAgree ? 'compare' : view;
 
   if (groups.length === 0) {
@@ -158,9 +168,13 @@ export function ScoreChart({ result }: { result: AnalyzeResult }) {
         </Chip>
       </div>
 
-      {effective === 'compare' && <DotPlot groups={groups} />}
-      {effective === 'arc' && <ArcChart result={result} />}
+      {effective === 'compare' && <DotPlot groups={groups} onInspect={setInspect} inspected={inspect} />}
+      {effective === 'arc' && <ArcChart result={result} onInspect={setInspect} />}
       {effective === 'agree' && <AgreementChart rows={result.rows ?? []} methods={methodsPresent} />}
+
+      {inspect && (
+        <ScoreInspector group={inspect} rows={result.rows ?? []} onClose={() => setInspect(null)} />
+      )}
     </div>
   );
 }
@@ -186,7 +200,15 @@ export function ScoreChart({ result }: { result: AnalyzeResult }) {
  * overlapping 95% CIs; the chart drew 72 confidently different lengths. The
  * whisker is what stops a reader believing a difference that isn't there.
  */
-function DotPlot({ groups }: { groups: AnalyzeGroup[] }) {
+function DotPlot({
+  groups,
+  onInspect,
+  inspected,
+}: {
+  groups: AnalyzeGroup[];
+  onInspect: (g: AnalyzeGroup) => void;
+  inspected: AnalyzeGroup | null;
+}) {
   const [sortByValue, setSortByValue] = useState(true);
   const [showAll, setShowAll] = useState(false);
 
@@ -232,6 +254,7 @@ function DotPlot({ groups }: { groups: AnalyzeGroup[] }) {
         <Chip active={sortByValue} onClick={() => setSortByValue(!sortByValue)}>
           {sortByValue ? 'Sorted by score' : 'Sorted by name'}
         </Chip>
+        <span>click a row to see the pages behind it</span>
         <span>
           axis {min.toFixed(2)}–{max.toFixed(2)}
           {(min > 0 || max < 1) && ' (zoomed to the data, not 0–1)'}
@@ -243,7 +266,15 @@ function DotPlot({ groups }: { groups: AnalyzeGroup[] }) {
           const st = g.stats;
           const thin = g.count < 5 || (st?.nBooks ?? 1) < 2;
           return (
-            <div key={`${g.dimension}:${g.method}:${g.key}`} className="flex items-center gap-3">
+            <div
+              key={`${g.dimension}:${g.method}:${g.key}`}
+              onClick={() => onInspect(g)}
+              title="Show the pages behind this number"
+              className={
+                'flex cursor-pointer items-center gap-3 rounded px-1 -mx-1 hover:bg-surface-2 ' +
+                (inspected === g ? 'bg-surface-2' : '')
+              }
+            >
               <div className="w-64 shrink-0 truncate text-right text-xs text-ink" title={label}>
                 {label}
               </div>
@@ -374,7 +405,13 @@ const VIEW_H = 340;
  * percentage points apart across instruments — inventing a lead/lag that was
  * purely an artefact of which dictionary matched a word on page 1.
  */
-function ArcChart({ result }: { result: AnalyzeResult }) {
+function ArcChart({
+  result,
+  onInspect,
+}: {
+  result: AnalyzeResult;
+  onInspect: (g: AnalyzeGroup) => void;
+}) {
   const [smooth, setSmooth] = useState(true);
   const [showAll, setShowAll] = useState(false);
 
@@ -423,7 +460,7 @@ function ArcChart({ result }: { result: AnalyzeResult }) {
         })
       : raw;
 
-    return { key: labelFor(g, vary), color: color(g, i), raw, points: smoothed };
+    return { key: labelFor(g, vary), color: color(g, i), raw, points: smoothed, group: g };
   });
 
   const plotW = VIEW_W - PAD.left - PAD.right;
@@ -437,7 +474,7 @@ function ArcChart({ result }: { result: AnalyzeResult }) {
         <Chip active={smooth} onClick={() => setSmooth(!smooth)} title="3-page rolling mean">
           {smooth ? 'Smoothed' : 'Raw pages'}
         </Chip>
-        <span>x = position in book (%), anchored to the book’s own page range</span>
+        <span>x = position in book (%), anchored to the book’s own page range · click a line to open its pages</span>
       </div>
 
       <div className="overflow-x-auto">
@@ -467,7 +504,11 @@ function ArcChart({ result }: { result: AnalyzeResult }) {
           </text>
 
           {lines.map((line) => (
-            <g key={line.key}>
+            <g
+              key={line.key}
+              onClick={() => onInspect(line.group)}
+              style={{ cursor: 'pointer' }}
+            >
               {line.points.length > 1 && (
                 <path
                   d={line.points.map((p, i) => `${i ? 'L' : 'M'}${sx(p.x)},${sy(p.y)}`).join(' ')}

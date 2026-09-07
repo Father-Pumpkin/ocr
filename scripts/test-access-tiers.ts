@@ -59,6 +59,8 @@ const ROUTES: Route[] = [
   { method: 'GET', path: '/api/analysis/options', guest: 'allow' },
   { method: 'GET', path: '/api/analysis/results', guest: 'allow' },
   { method: 'GET', path: '/api/analysis/export?format=pages.csv', guest: 'allow' },
+  // Explaining a score is a read: it recomputes from stored text and spends nothing.
+  { method: 'GET', path: `/api/analysis/explain?book=${B}&page=1&method=lex-afinn&dimension=polarity`, guest: 'allow' },
 
   // Book edits
   { method: 'PATCH', path: `/api/books/${B}/pages/1`, guest: 'deny', body: { transcription: 'nope' } },

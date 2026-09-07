@@ -249,6 +249,7 @@ export async function analyzeSentiment(input) {
                         count: rs.length,
                         mean: round3(mean),
                         stats: describe(rs),
+                        pageIds: [...new Set(rs.map((r) => r.page_id))],
                     });
                 }
             }

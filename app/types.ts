@@ -244,7 +244,34 @@ export interface AnalyzeGroup {
   count: number;
   mean?: number;
   stats?: GroupStats;
+  /** Pages this group averaged over — the drill-down from a number to the text. */
+  pageIds?: number[];
   points?: SeriesPoint[];
+}
+
+/** Why one page scored what it did, term by term. */
+export interface MatchedTerm {
+  term: string;
+  value: number;
+  effective: number;
+  negated: boolean;
+  positions: number[];
+}
+
+export interface ScoreExplanation {
+  book: string;
+  pageNumber: number;
+  method: string;
+  methodKind: string;
+  dimension: string;
+  storedScore: number | null;
+  recomputedScore: number | null;
+  matched: MatchedTerm[];
+  tokenCount: number;
+  matchCount: number;
+  text: string;
+  rationale: string | null;
+  note: string | null;
 }
 
 /** One stored score, as returned in AnalyzeResult.rows. */

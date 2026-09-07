@@ -118,6 +118,13 @@ export interface AnalyzeGroup {
   mean?: number;
   /** Present whenever a mean is. See GroupStats for why the mean isn't enough. */
   stats?: GroupStats;
+  /**
+   * The pages this group averaged over, so a reader can go from a number back to
+   * the text behind it. Membership depends on the grouping rule, which lives
+   * here — recomputing it in the client would be a second copy of that logic,
+   * free to drift from this one.
+   */
+  pageIds?: number[];
   points?: SeriesPoint[];
 }
 
@@ -411,6 +418,7 @@ export async function analyzeSentiment(input: AnalyzeInput): Promise<AnalyzeResu
             count: rs.length,
             mean: round3(mean),
             stats: describe(rs),
+            pageIds: [...new Set(rs.map((r) => r.page_id))],
           });
         }
       }
