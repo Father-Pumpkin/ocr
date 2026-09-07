@@ -284,6 +284,13 @@ export const api = {
   getAnalysisResults: (q: AnalysisQuery) =>
     request<AnalyzeResult>(`/api/analysis/results?${analysisQuery(q)}`),
 
+  /** Save a custom rubric as a reusable instrument. Deliberate; nothing auto-saves. */
+  saveRubricMethod: (body: { name: string; rubric: string; model?: string }) =>
+    request<{ method: { name: string } }>('/api/analysis/methods', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
   /** Why one page scored what it did — the words the dictionary matched. */
   explainScore: (q: { book: string; page: number; method: string; dimension: string }) =>
     request<ScoreExplanation>(

@@ -141,6 +141,12 @@ export function PageEditor() {
   // Load the OCR run history for the current page.
   useEffect(() => {
     let cancelled = false;
+    // Every OCR run is a full transcript, so the endpoint is member-only.
+    // Skip the request rather than firing a guaranteed 403 on every page view.
+    if (!isMember) {
+      setRuns([]);
+      return;
+    }
     api
       .getOcrRuns(name, pageNumber)
       .then((d) => {
@@ -288,7 +294,7 @@ export function PageEditor() {
   }
 
   async function onDelete() {
-    if (!window.confirm(`Delete page ${pageNumber}? This renumbers the following pages and cannot be undone.`)) {
+    if (!window.confirm(`Delete scene ${pageNumber}? This renumbers the following scenes and cannot be undone.`)) {
       return;
     }
     setDeleting(true);
@@ -325,7 +331,7 @@ export function PageEditor() {
 
   if (error) return <ErrorBox message={error} />;
   if (!pages) return <Loading label="Loading page…" />;
-  if (!page) return <EmptyState>Page {pageNumber} not found in this book.</EmptyState>;
+  if (!page) return <EmptyState>Scene {pageNumber} not found in this book.</EmptyState>;
 
   const driveUrl = book ? `https://drive.google.com/file/d/${book.drive_file_id}/view` : null;
   const imageUrl = `${api.pageImageUrl(name, pageNumber)}?v=${imageVersion}`;
@@ -347,7 +353,7 @@ export function PageEditor() {
             {book?.title ?? name}
           </button>
           <span className="text-faint">/</span>
-          <span className="text-ink">Page {pageNumber}</span>
+          <span className="text-ink">Scene {pageNumber}</span>
         </nav>
         <div className="flex items-center gap-2">
           {nextFlagged != null && nextFlagged !== pageNumber && (
@@ -443,16 +449,26 @@ export function PageEditor() {
               )}
               {isIllustration && <Badge tone="neutral">illustration</Badge>}
               {page.is_edited && <Badge tone="accent">edited</Badge>}
-              <button
-                onClick={onCopy}
-                title="Copy transcription to clipboard"
-                className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-ink"
-              >
-                <Copy className="h-3.5 w-3.5" />
-                {copied ? 'Copied' : 'Copy'}
-              </button>
+              {isMember && (
+                <button
+                  onClick={onCopy}
+                  title="Copy transcription to clipboard"
+                  className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-ink"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              )}
             </span>
           </div>
+          {/* The server withholds the text from guests, so an empty box would
+              read as a blank page. Say what is actually happening instead. */}
+          {!isMember ? (
+            <div className="mt-1.5 rounded-lg border border-border bg-surface-2 p-4 text-sm text-muted">
+              Transcripts are limited to approved accounts. The scan, the tags and every score computed
+              from this page are shown as usual.
+            </div>
+          ) : (
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -463,6 +479,7 @@ export function PageEditor() {
               isMember ? 'bg-surface' : 'bg-surface-2 cursor-default'
             }`}
           />
+          )}
 
           {/* Re-OCR preview — compare the fresh OCR with the working text before applying */}
           {ocrPreview && (
@@ -613,7 +630,7 @@ export function PageEditor() {
               size="sm"
               onClick={onToggleIllustration}
               disabled={busy}
-              title={isIllustration ? 'Treat this as a normal text page' : 'Mark this page as illustration-only'}
+              title={isIllustration ? 'Treat this as a normal text scene' : 'Mark this scene as illustration-only'}
             >
               <Picture className="h-4 w-4" />
               {togglingIllo ? '…' : isIllustration ? 'Unmark illustration' : 'Mark illustration'}
@@ -651,11 +668,11 @@ export function PageEditor() {
               title="Split this spread into two pages at the gutter"
             >
               <Columns className="h-4 w-4" />
-              Split page
+              Split scene
             </Button>
             <Button variant="danger" size="sm" onClick={onDelete} disabled={busy}>
               <Trash className="h-4 w-4" />
-              {deleting ? 'Deleting…' : 'Delete page'}
+              {deleting ? 'Deleting…' : 'Delete scene'}
             </Button>
           </div>
             </>
@@ -676,7 +693,7 @@ export function PageEditor() {
             setImageVersion((v) => v + 1); // cache-bust so the new split image loads
             load();
             // The left half may have just gained its original run — refresh history.
-            api.getOcrRuns(name, pageNumber).then((d) => setRuns(d.runs)).catch(() => {});
+            if (isMember) api.getOcrRuns(name, pageNumber).then((d) => setRuns(d.runs)).catch(() => {});
           }}
         />
       )}

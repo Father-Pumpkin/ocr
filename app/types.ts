@@ -194,7 +194,7 @@ export interface AnalysisRun {
   error: string | null;
 }
 
-/** A page range bounded by structural tags, resolved per book (see core/sections). */
+/** A scene range bounded by structural tags, resolved per book (see core/sections). */
 export interface SectionSpec {
   name?: string;
   /** Tag on the section's first page. Null/omitted = the start of the book. */

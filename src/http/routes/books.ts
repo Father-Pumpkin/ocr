@@ -56,12 +56,31 @@ function pageNum(req: Request): number {
   return Number.parseInt(str(req.params.n), 10);
 }
 
+/**
+ * Strip the book's text from a page row.
+ *
+ * The transcripts are the books themselves. Guests get the library, the page
+ * structure and everything computed *about* the text — scores, tags, quality
+ * flags — but not the text, so the public tier can support analysis without
+ * republishing the works it analyses.
+ *
+ * Redaction happens here rather than in the client, because hiding a field in
+ * the UI leaves it in the JSON for anyone who opens the network tab.
+ */
+function redactPage<T extends { transcription: string | null; original_transcription: string | null }>(
+  page: T,
+): T {
+  return { ...page, transcription: null, original_transcription: null };
+}
+
+const isGuest = (req: Request): boolean => (req as AuthedRequest).user?.role !== 'member';
+
 // GET /api/books/:name/pages — book row + all its pages
 booksRouter.get('/books/:name/pages', async (req, res) => {
   try {
     const { book, pages } = await getBookPagesData(bookName(req));
     if (!book) throw new NotFoundError(`Book not found: "${bookName(req)}"`);
-    res.json({ book, pages });
+    res.json({ book, pages: isGuest(req) ? pages.map(redactPage) : pages, textRedacted: isGuest(req) });
   } catch (err) {
     handleError(err, res);
   }
@@ -143,8 +162,10 @@ booksRouter.post('/books/:name/pages/:n/retranscribe', requireMember, async (req
   }
 });
 
-// GET /api/books/:name/pages/:n/ocr-runs — OCR run history (oldest first)
-booksRouter.get('/books/:name/pages/:n/ocr-runs', async (req, res) => {
+// GET /api/books/:name/pages/:n/ocr-runs — OCR run history (oldest first).
+// Member-only: every run is a full transcript of the page, and the history is
+// an editing/QA surface rather than something the public tier needs.
+booksRouter.get('/books/:name/pages/:n/ocr-runs', requireMember, async (req, res) => {
   try {
     const runs = await getPageOcrRunsData(bookName(req), pageNum(req));
     res.json({ runs });

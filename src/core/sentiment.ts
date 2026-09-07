@@ -74,6 +74,17 @@ export interface ScorePagesInput {
    * being guarded against is a runaway scope.
    */
   maxBatchItems?: number;
+  /**
+   * Estimate only: size a run for a method that has not been saved yet.
+   *
+   * Sizing a run must never create anything. Resolving a custom rubric used to
+   * persist a method as a side effect of estimating, and the form estimates on
+   * every edit — so typing a rubric name left a saved method behind for each
+   * intermediate spelling. With this set the estimate proceeds without a method
+   * row, and since a method that does not exist has scored nothing, every
+   * in-scope pair counts as still to do.
+   */
+  unsavedMethodKind?: 'llm' | 'lexicon';
   /** Called after each page–dimension pair is scored (inline runs only). */
   onProgress?: (done: number, total: number) => void;
 }
@@ -249,19 +260,24 @@ export async function estimateScoring(input: ScorePagesInput): Promise<ScoringEs
     problem,
   });
 
-  if (!method) return shell(`Scoring method "${methodName}" not found.`);
+  if (!method && !input.unsavedMethodKind) return shell(`Scoring method "${methodName}" not found.`);
   if (books.length === 0) return shell('No matching transcribed books in scope.');
   if (dims.length === 0) return shell('No sentiment dimensions selected.');
 
+  const kind = method?.kind ?? input.unsavedMethodKind!;
+  // -1 matches no stored score, which is the truth for a method that does not
+  // exist yet: nothing has been scored with it.
+  const methodId = method?.id ?? -1;
+
   const { items, skipped } = await collectItems(
-    books, dims, input.pageStart, input.pageEnd, !!input.overwrite, method.id, input.tags, input.sections,
+    books, dims, input.pageStart, input.pageEnd, !!input.overwrite, methodId, input.tags, input.sections,
   );
-  const requiredCalls = method.kind === 'lexicon' ? 0 : items.length;
+  const requiredCalls = kind === 'lexicon' ? 0 : items.length;
   const recommendedMode: RunMode =
-    method.kind === 'lexicon' || items.length <= BATCH_RECOMMEND_THRESHOLD ? 'standard' : 'batch';
+    kind === 'lexicon' || items.length <= BATCH_RECOMMEND_THRESHOLD ? 'standard' : 'batch';
   return {
     ...shell(null),
-    kind: method.kind,
+    kind,
     pairs: items.length,
     alreadyScored: skipped,
     requiredCalls,
