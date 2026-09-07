@@ -28,6 +28,7 @@ import type {
 import { Button, Card, ErrorBox, Label, Loading, Spinner, Badge, buttonClass } from '../components/ui';
 import { TagSelect } from '../components/TagSelect';
 import { LexiconUpload } from '../components/LexiconUpload';
+import { ScoreChart } from '../components/ScoreChart';
 import { Search, Download, Plus, Upload, Check, Refresh } from '../components/icons';
 import { useIsMember } from '../lib/session';
 
@@ -1154,6 +1155,7 @@ function ResultsPanel({
   exportFormats: ExportFormat[];
 }) {
   const hasScores = results.groups.length > 0;
+  const [view, setView] = useState<'chart' | 'table'>('chart');
   return (
     <Card className="p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1215,10 +1217,30 @@ function ResultsPanel({
               />
               Compare all instruments
             </label>
+            {/* Chart by default: the table answers "what is the number", the
+                chart answers "what is the shape", and the shape is the reason
+                to run this over a corpus at all. */}
+            <div className="ml-auto flex items-center gap-1 rounded-full border border-border p-0.5">
+              {(['chart', 'table'] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  className={
+                    'rounded-full px-3 py-1 text-xs capitalize ' +
+                    (view === v ? 'bg-accent-soft text-accent' : 'text-muted hover:text-ink')
+                  }
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
             {busy && <Spinner className="h-4 w-4 text-muted" />}
           </div>
 
-          <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+          {view === 'chart' && <ScoreChart result={results} />}
+
+          <div className={(view === 'table' ? '' : 'hidden ') + 'mt-4 overflow-x-auto rounded-lg border border-border'}>
             <table className="w-full text-left text-sm">
               <thead className="bg-surface-2 text-xs uppercase tracking-wide text-muted">
                 <tr>

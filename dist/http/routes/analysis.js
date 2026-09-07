@@ -184,7 +184,7 @@ analysisRouter.get('/analysis/options', async (_req, res) => {
     }
 });
 // POST /api/analysis/estimate — size a run (pages, calls, cap) before committing
-analysisRouter.post('/analysis/estimate', allowGuestLexiconRuns, LIMITS.SCORING, async (req, res) => {
+analysisRouter.post('/analysis/estimate', allowGuestLexiconRuns, LIMITS.ESTIMATES, async (req, res) => {
     try {
         res.json(await estimateRun(runRequestFromBody(req.body)));
     }
