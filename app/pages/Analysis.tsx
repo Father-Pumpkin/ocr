@@ -112,8 +112,10 @@ export function Analysis() {
   const [runError, setRunError] = useState<string | null>(null);
   const [results, setResults] = useState<AnalyzeResult | null>(null);
   const [resultsBusy, setResultsBusy] = useState(false);
-  const [groupBy, setGroupBy] = useState<GroupBy | ''>('');
-  const [aggregate, setAggregate] = useState<Aggregate | ''>('');
+  // Defaults matching the opening view: the arc needs a per-scene series, so
+  // asking for it up front is what stops the chart opening on "Loading…".
+  const [groupBy, setGroupBy] = useState<GroupBy | ''>('page');
+  const [aggregate, setAggregate] = useState<Aggregate | ''>('series');
   // Off: show only the instrument selected above. On: every instrument that has
   // scores for this scope, so a lexicon and Claude can be read side by side.
   /**
@@ -134,7 +136,10 @@ export function Analysis() {
    * arc and the agreement plot were effectively unreachable. Picking the view
    * now asks for the data that view needs.
    */
-  const [view, setView] = useState<ChartView>('compare');
+  // The arc opens by default: the shape of a score across a book is the thing
+  // people come here to look at, and a column of group averages answers a
+  // narrower question than the one being asked first.
+  const [view, setView] = useState<ChartView>('arc');
   const chooseView = (v: ChartView) => {
     setView(v);
     if (v === 'arc') {

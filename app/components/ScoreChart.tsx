@@ -228,7 +228,7 @@ export function ScoreChart({
           Compare groups
         </Chip>
         <Chip active={effective === 'arc'} onClick={() => onView('arc')} title="Score across the book, scene by scene">
-          Across the pages
+          Across the scenes
         </Chip>
         <Chip
           active={effective === 'agree'}
@@ -452,7 +452,7 @@ function SpreadNote({ groups }: { groups: AnalyzeGroup[] }) {
     <Note>
       <span className="text-warn">Read with care:</span>{' '}
       {[
-        thin && `${thin} group(s) rest on fewer than 5 pages`,
+        thin && `${thin} group(s) rest on fewer than 5 scenes`,
         skewed && `${skewed} are skewed enough that the mean sits far from the median`,
         railed &&
           `${railed} come from a near-binary instrument, where the mean is closer to “share of positive words” than to a level`,
@@ -515,7 +515,7 @@ function ArcChart({
   if (plottable.length === 0) {
     return (
       <p className="text-sm text-warn">
-        These groups each pool pages from several books, so there is no single sequence to draw a line
+        These groups each pool scenes from several books, so there is no single sequence to draw a line
         along. Group by <strong className="text-ink">page</strong> or <strong className="text-ink">book</strong> to
         plot arcs, or switch to <strong className="text-ink">Compare groups</strong>.
       </p>
@@ -663,7 +663,7 @@ function ArcChart({
       )}
       {pooled.length > 0 && (
         <Note>
-          <span className="text-warn">{pooled.length} group(s) not drawn:</span> they pool pages from several books, so
+          <span className="text-warn">{pooled.length} group(s) not drawn:</span> they pool scenes from several books, so
           they have no single page sequence. Compare them under “Compare groups”.
         </Note>
       )}
@@ -761,7 +761,7 @@ function AgreementChart({ rows, methods }: { rows: ScoreRow[]; methods: string[]
 
       {pairs.length < 2 ? (
         <p className="text-sm text-warn">
-          These two instruments share fewer than two scored pages, so there is nothing to compare. A page with no
+          These two instruments share fewer than two scored scenes, so there is nothing to compare. A scene with no
           dictionary matches gets no score, and coverage differs between dictionaries.
         </p>
       ) : (
