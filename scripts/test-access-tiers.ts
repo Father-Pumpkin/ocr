@@ -54,7 +54,9 @@ const ROUTES: Route[] = [
   { method: 'GET', path: '/api/tags', guest: 'allow' },
   { method: 'GET', path: '/api/models', guest: 'allow' },
   { method: 'GET', path: `/api/books/${B}/pages`, guest: 'allow' },
+  // A guest sees one scan per book — the cover — and no other page.
   { method: 'GET', path: `/api/books/${B}/pages/1/image`, guest: 'allow' },
+  { method: 'GET', path: `/api/books/${B}/pages/2/image`, guest: 'deny' },
   // Every OCR run is a full transcript of the page.
   { method: 'GET', path: `/api/books/${B}/pages/1/ocr-runs`, guest: 'deny' },
   { method: 'GET', path: '/api/analysis/options', guest: 'allow' },
@@ -150,7 +152,10 @@ const blockedByTier = (r: { status: number; error: string }): boolean =>
 
 const book = await upsertBook('drive-access-tiers', 'Access.pdf', BOOK);
 await upsertPage(book.id, 1, 'Una página de prueba.');
-await updateBookStatus(book.id, 'complete', 1);
+// A second page, so "guests see the cover and nothing else" has a non-cover
+// page to be refused for.
+await upsertPage(book.id, 2, 'Otra página de prueba.');
+await updateBookStatus(book.id, 'complete', 2);
 
 await createHttpServer(PORT);
 
