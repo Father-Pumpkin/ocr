@@ -17,7 +17,7 @@
  */
 import { getAllBooks, getBookByName, getAllDimensions, getAllMethods, getPages, getSentimentScores, } from './database.js';
 import { isTextPage } from './quality.js';
-import { resolveSections, sectionsForPage, parsePageTags, isMeaningfulSection, } from './sections.js';
+import { resolveSections, sectionsForPage, pageInAnySection, parsePageTags, isMeaningfulSection, } from './sections.js';
 export const GROUP_BY_VALUES = [
     'page', 'book', 'tag', 'book_tag', 'method', 'section', 'book_section',
 ];
@@ -121,12 +121,18 @@ function groupKeys(r, groupBy, tagFilter, sections) {
  * `books.page_count` can't be used for it: it still holds the pre-split spread
  * count and understates 60 of the 72 books here.
  */
-async function scanPages(books, pageStart, pageEnd) {
+async function scanPages(books, pageStart, pageEnd, sections) {
     let textPages = 0;
     const spans = {};
     for (const b of books) {
         const pages = await getPages(b.id, pageStart, pageEnd);
-        textPages += pages.filter(isTextPage).length;
+        // "In scope" has to mean the same thing the filters mean. Counting every
+        // text page while a section admits none produced "0 scores … 115 text pages
+        // in scope", which reads as missing data rather than an empty filter.
+        const inScope = sections.length
+            ? pages.filter((p) => pageInAnySection(sections, b.id, p.page_number))
+            : pages;
+        textPages += inScope.filter(isTextPage).length;
         const numbers = pages.map((p) => p.page_number);
         if (numbers.length) {
             spans[b.title] = { first: Math.min(...numbers), last: Math.max(...numbers) };
@@ -194,12 +200,25 @@ export async function analyzeSentiment(input) {
     if (resolvedSections.length) {
         rows = rows.filter((r) => sectionsForPage(resolvedSections, r.book_id, r.page_number).length > 0);
     }
-    const { textPages, spans: bookPageSpans } = await scanPages(books, input.pageStart, input.pageEnd);
+    const { textPages, spans: bookPageSpans } = await scanPages(books, input.pageStart, input.pageEnd, resolvedSections);
     const scoredPages = new Set(rows.map((r) => r.page_id)).size;
     const methodCount = new Set(rows.map((r) => r.method_name)).size;
     if (rows.length === 0) {
-        return shell(`No sentiment scores found yet for ${describeScope(books, dims, tagFilter)}. ` +
-            `Run score_pages for these books/dimensions first (${textPages} text page(s) in scope).`, { textPages, scoredPages: 0, scores: 0 });
+        // An empty result has two very different causes, and blaming the wrong one
+        // sends people off to re-run scoring that has already happened. A section
+        // that resolved in no book is a filter problem, not a missing-data problem.
+        const deadSections = sectionCoverage.filter((sc) => sc.booksResolved === 0);
+        if (sectionCoverage.length > 0 && deadSections.length === sectionCoverage.length) {
+            const which = deadSections.length === 1
+                ? `the section “${deadSections[0].label}”`
+                : `none of the ${deadSections.length} sections`;
+            return shell(`No pages are in scope — ${which} matched any of the ${books.length} selected book(s), ` +
+                `because they do not carry both marker tags. Only some books here have narrative markers such as ` +
+                `“climax”. Pick a section whose tags these books do have, or clear the section to use every page.`, { textPages, scoredPages: 0, scores: 0 });
+        }
+        return shell(`No sentiment scores found yet for ${describeScope(books, dims, tagFilter)}` +
+            `${sectionCoverage.length ? ' within the selected section(s)' : ''}. ` +
+            `Score these pages first (${textPages} text page(s) in scope).`, { textPages, scoredPages: 0, scores: 0 });
     }
     const sectionsByPageId = {};
     if (resolvedSections.length) {
