@@ -930,6 +930,12 @@ export function Analysis() {
           results={results}
           busy={resultsBusy}
           instruments={allInstruments}
+          sectionsEmptiedIt={
+            results.groups.length === 0 &&
+            results.sections.length > 0 &&
+            results.sections.every((sc) => sc.booksResolved === 0)
+          }
+          onClearSections={() => setSections([])}
           groupBy={groupBy}
           aggregate={aggregate}
           onGroupBy={setGroupBy}
@@ -1425,6 +1431,8 @@ function InstrumentPicker({
 function ResultsPanel({
   results,
   busy,
+  sectionsEmptiedIt,
+  onClearSections,
   groupBy,
   aggregate,
   onGroupBy,
@@ -1443,6 +1451,9 @@ function ResultsPanel({
   onAggregate: (a: Aggregate | '') => void;
   /** Every known instrument, so the chart can colour them from a stable list. */
   instruments: string[];
+  /** True when a section is the reason there is nothing to show. */
+  sectionsEmptiedIt: boolean;
+  onClearSections: () => void;
   chartView: ChartView;
   onChartView: (v: ChartView) => void;
   exportUrl: (f: ExportFormat) => string;
@@ -1456,6 +1467,19 @@ function ResultsPanel({
         <div>
           <h2 className="font-serif text-lg font-semibold text-ink">Results</h2>
           <p className="mt-1 max-w-2xl text-sm text-muted">{results.summary}</p>
+          {/* The default section covers 61 of the 72 books, so the other 11 open
+              on an empty result. The message explains why; this is the way out,
+              rather than making someone find the section control and work out
+              that it is the cause. */}
+          {sectionsEmptiedIt && (
+            <button
+              type="button"
+              onClick={onClearSections}
+              className="mt-1.5 text-sm text-accent hover:underline"
+            >
+              Use every scene instead
+            </button>
+          )}
         </div>
         {hasScores && (
           <div className="flex flex-wrap gap-2">
