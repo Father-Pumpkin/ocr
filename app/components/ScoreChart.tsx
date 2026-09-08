@@ -640,29 +640,48 @@ function ArcChart({
                   opacity={0.9}
                 />
               )}
-              {line.raw.map((p, i) => (
-                <circle
-                  key={i}
-                  cx={sx(p.x)}
-                  cy={sy(p.y)}
-                  // Generous invisible hit area: a 2px dot is very hard to hit,
-                  // and the whole point of the hover is to identify one.
-                  r={7}
-                  fill="transparent"
-                  onMouseMove={(e) =>
-                    tip.show(
-                      e,
-                      [line.key, `scene ${p.page} · ${Math.round(p.x)}% through`, `score ${fmt(p.y)}`],
-                      line.color,
-                      e.currentTarget.closest('.relative'),
-                    )
-                  }
-                  onMouseLeave={tip.hide}
-                />
-              ))}
+              {/* Hit targets follow the drawn line, not the raw scatter.
+                  Smoothing moves the line away from the dots it came from, so
+                  targeting the dots meant hovering empty space to read the
+                  line, and hovering the line itself did nothing. The invisible
+                  radius is generous because a 2px vertex is hard to hit and
+                  identifying it is the whole point. */}
+              {line.points.map((p, i) => {
+                const raw = line.raw[i];
+                return (
+                  <circle
+                    key={i}
+                    cx={sx(p.x)}
+                    cy={sy(p.y)}
+                    r={9}
+                    fill="transparent"
+                    onMouseMove={(e) =>
+                      tip.show(
+                        e,
+                        [
+                          line.key,
+                          `scene ${p.page} · ${Math.round(p.x)}% through`,
+                          smooth
+                            ? `${fmt(p.y)} smoothed · ${fmt(raw.y)} raw`
+                            : `score ${fmt(p.y)}`,
+                        ],
+                        line.color,
+                        e.currentTarget.closest('.relative'),
+                      )
+                    }
+                    onMouseLeave={tip.hide}
+                  />
+                );
+              })}
+              {/* The raw scatter behind the line stays visible but inert. */}
               {line.raw.map((p, i) => (
                 <circle key={`d${i}`} cx={sx(p.x)} cy={sy(p.y)} r={2} fill={line.color} opacity={smooth ? 0.28 : 0.9} pointerEvents="none" />
               ))}
+              {/* A visible vertex on the line, so the hover has something to aim at. */}
+              {smooth &&
+                line.points.map((p, i) => (
+                  <circle key={`v${i}`} cx={sx(p.x)} cy={sy(p.y)} r={2.5} fill={line.color} opacity={0.85} pointerEvents="none" />
+                ))}
             </g>
           ))}
         </svg>
