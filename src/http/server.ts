@@ -10,7 +10,7 @@ import { authRouter } from './routes/auth.js';
 import { loginRouter } from './routes/login.js';
 import { requireAuth, type AuthedRequest } from './middleware/require-auth.js';
 import { LIMITS } from './middleware/rate-limit.js';
-import { isProd } from './session.js';
+import { basePath, isProd } from './session.js';
 import { processPendingSentimentBatches, seedLexiconsFromDisk } from '../core/analysis-service.js';
 
 /**
@@ -31,7 +31,10 @@ export async function createHttpServer(port: number): Promise<Express> {
   // Behind Render's proxy, req.ip is the proxy unless we say how many hops to
   // trust. The IP-keyed login limiter is meaningless without this. Trust exactly
   // one hop rather than `true`, which would let a client forge X-Forwarded-For.
-  if (isProd()) app.set('trust proxy', 1);
+  // Mounted behind another site's proxy (see DEPLOY.md) there is one more hop,
+  // and trusting too few would lump every visitor under the proxy's IP:
+  // TRUST_PROXY_HOPS sets the count.
+  if (isProd()) app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1));
 
   // Express's default query parser is qs with arrayLimit: 20 — past twenty
   // repeats of the same key it stops building an array and returns an object
@@ -43,35 +46,59 @@ export async function createHttpServer(port: number): Promise<Express> {
 
   app.use(express.json({ limit: '50mb' }));
 
+  // Everything is mounted under the base path ('' at a domain root, e.g.
+  // '/projects/feeling-narrative' behind another site). Routes inside see paths
+  // relative to it, so nothing below needs to know where it's mounted.
+  const base = basePath();
+  const site = express.Router();
+
   // --- Public routes (no session required) ---
-  app.get('/api/health', (_req, res) => res.json({ ok: true }));
+  site.get('/api/health', (_req, res) => res.json({ ok: true }));
   // Keyed by IP: there is no session yet on the way in.
-  app.use('/api/auth', LIMITS.LOGIN, loginRouter); // /google/login, /google/callback, /logout
+  site.use('/api/auth', LIMITS.LOGIN, loginRouter); // /google/login, /google/callback, /logout
 
   // --- Gate: everything below requires a valid session (guest or member) ---
-  app.use('/api', requireAuth);
+  site.use('/api', requireAuth);
   // After requireAuth, so the limiter can key on the session rather than an IP
   // shared by a whole institution. Individual routes add tighter limits on top.
-  app.use('/api', LIMITS.READS);
-  app.get('/api/me', (req, res) => {
+  site.use('/api', LIMITS.READS);
+  site.get('/api/me', (req, res) => {
     const user = (req as AuthedRequest).user;
     res.json({ email: user?.email ?? null, role: user?.role ?? 'guest' });
   });
-  // NB: `app.use('/api', requireMember, authRouter)` would apply requireMember to
+  // NB: `site.use('/api', requireMember, authRouter)` would apply requireMember to
   // every /api request, not just this router's — Express treats the path as a
   // prefix for the whole chain. The Drive routes gate themselves instead.
-  app.use('/api', authRouter);
-  app.use('/api', libraryRouter);
-  app.use('/api', booksRouter);
-  app.use('/api', analysisRouter);
+  site.use('/api', authRouter);
+  site.use('/api', libraryRouter);
+  site.use('/api', booksRouter);
+  site.use('/api', analysisRouter);
 
   // --- Serve the built web app (prod, or any time a build is present) ---
   if (isProd() || fs.existsSync(APP_DIST)) {
-    app.use(express.static(APP_DIST));
-    app.get('*', (req: Request, res: Response, next: NextFunction) => {
+    // index.html is served with its <base href> set to the mount point: the
+    // build uses relative asset URLs and the client reads its router basename
+    // from document.baseURI, so this one line is what places the app.
+    const sendIndex = (_req: Request, res: Response) => {
+      const html = fs
+        .readFileSync(path.join(APP_DIST, 'index.html'), 'utf8')
+        .replace('<base href="/" />', `<base href="${base}/" />`);
+      res.type('html').setHeader('Cache-Control', 'no-cache').send(html);
+    };
+    site.get('/', sendIndex);
+    site.use(express.static(APP_DIST, { index: false }));
+    site.get('*', (req: Request, res: Response, next: NextFunction) => {
       if (req.path.startsWith('/api')) return next();
-      res.sendFile(path.join(APP_DIST, 'index.html'));
+      sendIndex(req, res);
     });
+  }
+
+  if (base) {
+    app.use(base, site);
+    // Hitting the service's own origin directly lands on the app.
+    app.get('/', (_req, res) => res.redirect(`${base}/`));
+  } else {
+    app.use(site);
   }
 
   await new Promise<void>((resolve, reject) => {
@@ -79,7 +106,7 @@ export async function createHttpServer(port: number): Promise<Express> {
     server.on('error', reject);
   });
 
-  process.stderr.write(`[OCR HTTP] Listening on http://localhost:${port}\n`);
+  process.stderr.write(`[OCR HTTP] Listening on http://localhost:${port}${base}/\n`);
 
   // Fire-and-forget startup work — neither should be able to stop the server
   // coming up, so both swallow their own errors.

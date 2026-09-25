@@ -11,6 +11,7 @@ import { useSession } from './lib/session';
 import { IconButton, buttonClass, Badge } from './components/ui';
 import { Sun, Moon, LogOut, BookOpen } from './components/icons';
 import { api, setWakingHandler } from './lib/api';
+import { withBase } from './lib/base';
 import { getTheme, toggleTheme, type Theme } from './lib/theme';
 
 export function App() {
@@ -48,7 +49,7 @@ function Header({ email }: { email: string }) {
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-accent-ink">
             <BookOpen className="h-5 w-5" />
           </span>
-          <span className="font-serif text-xl font-semibold tracking-tight text-ink">OCR Tool</span>
+          <span className="font-serif text-xl font-semibold tracking-tight text-ink">Feeling Narrative</span>
         </Link>
         <div className="flex items-center gap-2 sm:gap-3">
           <RoleBadge />
@@ -119,7 +120,7 @@ function UserMenu({ email }: { email: string }) {
     } catch {
       /* ignore — clear client state regardless */
     }
-    window.location.href = '/';
+    window.location.href = withBase('/');
   }
   return (
     <div className="flex items-center gap-2.5">
