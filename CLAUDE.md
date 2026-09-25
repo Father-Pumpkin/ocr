@@ -245,5 +245,6 @@ Copy `.env.example` to `.env`. Core requirements: `ANTHROPIC_API_KEY`, `GOOGLE_C
 - **Postgres** (else SQLite): `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` / `DB_SSL`, or a single `DATABASE_URL`
 - **Object storage** (else base64-in-DB): `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `IMAGE_RENDER_SCALE`
 - **Web-app login gate**: `AUTH_ENABLED` (auto-on when `NODE_ENV=production`), `BASE_URL`, `ALLOWED_EMAILS`, `SESSION_SECRET`; plus `GOOGLE_DRIVE_TOKEN` to enable Drive in hosted deploys
+- **Mount point**: a path on `BASE_URL` (e.g. `https://jahuntsmith.com/projects/feeling-narrative`) mounts the whole app under it — routes, cookie path, and the `<base href>` injected into `index.html`, which the client reads via `app/lib/base.ts`. Client code must build absolute URLs with `withBase()`. `TRUST_PROXY_HOPS` (default 1) for when another proxy sits in front. See `DEPLOY.md`
 
 `data/` and `credentials/` are gitignored and created on first run. Deployment is via Docker/Render — see `DEPLOY.md`.

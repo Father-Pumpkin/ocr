@@ -1,3 +1,4 @@
+import { withBase } from './base';
 import type {
   BookRow,
   PageRow,
@@ -47,7 +48,7 @@ class ApiError extends Error {
 export { ApiError };
 
 /** Full-page login link (a server redirect flow, not a fetch). */
-export const LOGIN_URL = '/api/auth/google/login';
+export const LOGIN_URL = withBase('/api/auth/google/login');
 
 // --- Cold-start resilience -------------------------------------------------
 // On the free hosting tier the server sleeps after ~15 min idle and can take up
@@ -77,7 +78,7 @@ async function fetchOnce(path: string, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
   try {
-    return await fetch(path, {
+    return await fetch(withBase(path), {
       ...init,
       signal: controller.signal,
       headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
@@ -202,7 +203,7 @@ export const api = {
     request<{ book: BookRow; pages: PageRow[] }>(`/api/books/${enc(name)}/pages`),
 
   /** URL for a page's image — use directly as <img src>. */
-  pageImageUrl: (name: string, n: number) => `/api/books/${enc(name)}/pages/${n}/image`,
+  pageImageUrl: (name: string, n: number) => withBase(`/api/books/${enc(name)}/pages/${n}/image`),
 
   setPageImage: (name: string, n: number, imageBase64: string) =>
     request<{ ok: true }>(`/api/books/${enc(name)}/pages/${n}/image`, {
@@ -299,7 +300,7 @@ export const api = {
 
   /** Download href — a plain link so the browser handles the file save. */
   analysisExportUrl: (q: AnalysisQuery, format: ExportFormat) =>
-    `/api/analysis/export?${analysisQuery(q)}&format=${enc(format)}`,
+    withBase(`/api/analysis/export?${analysisQuery(q)}&format=${enc(format)}`),
 
   createDimension: (body: { name: string; description: string; minLabel?: string; maxLabel?: string }) =>
     request<{ dimension: DimensionRow }>('/api/analysis/dimensions', {

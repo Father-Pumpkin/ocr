@@ -37,9 +37,27 @@ function sessionSecret(): string {
   return 'dev-insecure-session-secret'; // local-only fallback; never used when auth is on
 }
 
-/** Public origin of the app, used to build the OAuth callback URL. No trailing slash. */
+/**
+ * Public URL of the app, used to build the OAuth callback URL. No trailing
+ * slash. May carry a path when the app is mounted under another site, e.g.
+ * https://jahuntsmith.com/projects/feeling-narrative.
+ */
 export function baseUrl(): string {
   return (process.env.BASE_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
+}
+
+/**
+ * The path the app is mounted under: '' at a domain root, else e.g.
+ * '/projects/feeling-narrative'. Taken from BASE_URL so the mount point is
+ * configured in exactly one place — routes, cookies, redirects and the web
+ * app's <base href> all follow it.
+ */
+export function basePath(): string {
+  try {
+    return new URL(baseUrl()).pathname.replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
 }
 
 // --- Allowlist -------------------------------------------------------------
@@ -128,7 +146,9 @@ export function readCookie(req: Request, name: string): string | null {
 }
 
 function buildCookie(name: string, value: string, maxAgeSec: number): string {
-  const attrs = [`${name}=${value}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${maxAgeSec}`];
+  // Scoped to the mount point, so behind a shared domain the session isn't sent
+  // to the rest of the site.
+  const attrs = [`${name}=${value}`, `Path=${basePath() || '/'}`, 'HttpOnly', 'SameSite=Lax', `Max-Age=${maxAgeSec}`];
   if (isProd()) attrs.push('Secure');
   return attrs.join('; ');
 }

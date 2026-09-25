@@ -18,6 +18,7 @@ import crypto from 'node:crypto';
 import { google } from 'googleapis';
 import {
   baseUrl,
+  basePath,
   createSessionToken,
   sessionCookie,
   clearSessionCookie,
@@ -89,7 +90,7 @@ loginRouter.get('/google/callback', async (req, res) => {
     // No allowlist check here: a non-allowlisted account becomes a guest rather
     // than being turned away. What a guest may do is enforced per route.
     res.setHeader('Set-Cookie', [sessionCookie(createSessionToken(email)), clearStateCookie()]);
-    res.redirect('/');
+    res.redirect(`${basePath()}/`);
   } catch (err) {
     res.status(500).send(errorPage('Sign-in failed while talking to Google. Please try again.', err));
   }
@@ -108,11 +109,11 @@ function errorPage(message: string, err?: unknown): string {
           err instanceof Error ? err.message : String(err),
         )}</pre>`
       : '';
-  return `<!doctype html><html><head><meta charset="utf-8"><title>OCR Tool</title></head>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Feeling Narrative</title></head>
   <body style="font-family:system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1.25rem;color:#0f172a;line-height:1.5">
-    <h2 style="margin-bottom:.5rem">OCR Tool</h2>
+    <h2 style="margin-bottom:.5rem">Feeling Narrative</h2>
     <p>${escapeHtml(message)}</p>${detail}
-    <p style="margin-top:1.5rem"><a href="/" style="color:#2563eb;text-decoration:none">&larr; Back to sign in</a></p>
+    <p style="margin-top:1.5rem"><a href="${basePath()}/" style="color:#2563eb;text-decoration:none">&larr; Back to sign in</a></p>
   </body></html>`;
 }
 
