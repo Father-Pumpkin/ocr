@@ -723,7 +723,7 @@ export function Analysis() {
       </Section>
 
       {/* ---- Step 3: scope ---- */}
-      <Section step={3} title="What to run it on" hint="A whole book, a section of one, or the whole library.">
+      <Section step={3} title="What to run it on" hint="Which books, and which part of each.">
         <div className="grid gap-5 lg:grid-cols-2">
           <div>
             <div className="flex items-center justify-between gap-3">
@@ -771,54 +771,90 @@ export function Analysis() {
             )}
           </div>
 
+          {/* This column was four controls in a flat pile. Two of them keyed
+              off tags while meaning different things, and one ("re-score") was
+              not a scope filter at all. The section is what the corpus is
+              actually sliced by, so it leads; the two that sections superseded
+              are folded away rather than removed. */}
           <div className="space-y-4">
             <div>
-              <Label>Scene range</Label>
-              <div className="mt-1.5 flex items-center gap-2">
-                <input
-                  value={pageStart}
-                  onChange={(e) => setPageStart(e.target.value.replace(/\D/g, ''))}
-                  placeholder="from"
-                  inputMode="numeric"
-                  className="h-9 w-24 rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
-                />
-                <span className="text-muted">–</span>
-                <input
-                  value={pageEnd}
-                  onChange={(e) => setPageEnd(e.target.value.replace(/\D/g, ''))}
-                  placeholder="to"
-                  inputMode="numeric"
-                  className="h-9 w-24 rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
-                />
-                <span className="text-xs text-muted">Leave blank for every scene.</span>
+              <Label>Part of each book</Label>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => usableSections.length === 0 && setSections([DEFAULT_SECTION])}
+                  className={`rounded-full border px-3 py-1 text-sm ${
+                    usableSections.length > 0
+                      ? 'border-accent bg-accent text-accent-ink'
+                      : 'border-border bg-surface text-muted hover:text-ink'
+                  }`}
+                >
+                  A section
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSections([])}
+                  className={`rounded-full border px-3 py-1 text-sm ${
+                    usableSections.length === 0
+                      ? 'border-accent bg-accent text-accent-ink'
+                      : 'border-border bg-surface text-muted hover:text-ink'
+                  }`}
+                >
+                  Every scene
+                </button>
               </div>
+              {usableSections.length > 0 && (
+                <div className="mt-3">
+                  <SectionPicker
+                    sections={sections}
+                    onChange={setSections}
+                    tags={options.tags}
+                    coverage={results?.sections ?? []}
+                  />
+                </div>
+              )}
             </div>
-            <div>
-              <Label>Tagged scenes only</Label>
-              <div className="mt-1.5">
-                <TagSelect value={tags} onChange={setTags} suggestions={options.tags} placeholder="Any tag…" />
+
+            <details className="rounded-lg border border-border bg-surface-2/40 px-3 py-2">
+              <summary className="cursor-pointer text-xs text-muted">
+                Narrower filters — rarely needed once a section is set
+              </summary>
+              <div className="mt-3 space-y-4">
+                <div>
+                  <Label>Only scenes tagged</Label>
+                  <div className="mt-1.5">
+                    <TagSelect value={tags} onChange={setTags} suggestions={options.tags} placeholder="Any tag…" />
+                  </div>
+                  <p className="mt-1 text-xs text-muted">
+                    The scenes carrying a marker, rather than the range between two of them.
+                  </p>
+                </div>
+                <div>
+                  <Label>Scene numbers</Label>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <input
+                      value={pageStart}
+                      onChange={(e) => setPageStart(e.target.value.replace(/\D/g, ''))}
+                      placeholder="from"
+                      inputMode="numeric"
+                      className="h-9 w-24 rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                    />
+                    <span className="text-muted">–</span>
+                    <input
+                      value={pageEnd}
+                      onChange={(e) => setPageEnd(e.target.value.replace(/\D/g, ''))}
+                      placeholder="to"
+                      inputMode="numeric"
+                      className="h-9 w-24 rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-warn">
+                    The same numbers in every book, so scene 8 is a different moment in each. A section is
+                    usually what you want instead.
+                  </p>
+                </div>
               </div>
-            </div>
-            <SectionPicker
-              sections={sections}
-              onChange={setSections}
-              tags={options.tags}
-              coverage={results?.sections ?? []}
-            />
-            <label className="flex items-start gap-2 text-sm text-ink">
-              <input
-                type="checkbox"
-                checked={overwrite}
-                onChange={(e) => setOverwrite(e.target.checked)}
-                className="mt-0.5 accent-[var(--accent)]"
-              />
-              <span>
-                Re-score pages that already have a score
-                <span className="block text-xs text-muted">
-                  Off by default: existing scores for this instrument are reused, so repeat runs are cheap.
-                </span>
-              </span>
-            </label>
+            </details>
           </div>
         </div>
       </Section>
@@ -846,6 +882,22 @@ export function Analysis() {
             maxLlmCalls={options.maxLlmCalls}
             maxBatchItems={options.maxBatchItems}
           />
+          {/* Re-scoring is a property of the run, not of the scope, and it was
+              sitting under "what to run it on" where it read as another filter. */}
+          <label className="flex items-start gap-2 text-sm text-ink">
+            <input
+              type="checkbox"
+              checked={overwrite}
+              onChange={(e) => setOverwrite(e.target.checked)}
+              className="mt-0.5 accent-[var(--accent)]"
+            />
+            <span>
+              Re-score scenes that already have a score
+              <span className="block text-xs text-muted">
+                Off by default: existing scores for this instrument are reused, so repeat runs are cheap.
+              </span>
+            </span>
+          </label>
           <Button variant="primary" onClick={onRun} disabled={!canRun || submitting}>
             {(submitting || running) && <Spinner className="h-4 w-4" />}
             {submitting
@@ -930,6 +982,12 @@ export function Analysis() {
           results={results}
           busy={resultsBusy}
           instruments={allInstruments}
+          sectionsEmptiedIt={
+            results.groups.length === 0 &&
+            results.sections.length > 0 &&
+            results.sections.every((sc) => sc.booksResolved === 0)
+          }
+          onClearSections={() => setSections([])}
           groupBy={groupBy}
           aggregate={aggregate}
           onGroupBy={setGroupBy}
@@ -1425,6 +1483,8 @@ function InstrumentPicker({
 function ResultsPanel({
   results,
   busy,
+  sectionsEmptiedIt,
+  onClearSections,
   groupBy,
   aggregate,
   onGroupBy,
@@ -1443,6 +1503,9 @@ function ResultsPanel({
   onAggregate: (a: Aggregate | '') => void;
   /** Every known instrument, so the chart can colour them from a stable list. */
   instruments: string[];
+  /** True when a section is the reason there is nothing to show. */
+  sectionsEmptiedIt: boolean;
+  onClearSections: () => void;
   chartView: ChartView;
   onChartView: (v: ChartView) => void;
   exportUrl: (f: ExportFormat) => string;
@@ -1456,6 +1519,19 @@ function ResultsPanel({
         <div>
           <h2 className="font-serif text-lg font-semibold text-ink">Results</h2>
           <p className="mt-1 max-w-2xl text-sm text-muted">{results.summary}</p>
+          {/* The default section covers 61 of the 72 books, so the other 11 open
+              on an empty result. The message explains why; this is the way out,
+              rather than making someone find the section control and work out
+              that it is the cause. */}
+          {sectionsEmptiedIt && (
+            <button
+              type="button"
+              onClick={onClearSections}
+              className="mt-1.5 text-sm text-accent hover:underline"
+            >
+              Use every scene instead
+            </button>
+          )}
         </div>
         {hasScores && (
           <div className="flex flex-wrap gap-2">
