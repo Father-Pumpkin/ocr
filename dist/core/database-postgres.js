@@ -187,6 +187,7 @@ export class PostgresAdapter {
         await this.sql `ALTER TABLE pages ADD COLUMN IF NOT EXISTS ocr_quality_reason TEXT`;
         await this.sql `ALTER TABLE books ADD COLUMN IF NOT EXISTS ocr_quality TEXT`;
         await this.sql `ALTER TABLE books ADD COLUMN IF NOT EXISTS ocr_quality_note TEXT`;
+        await this.sql `ALTER TABLE books ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT FALSE`;
         // Object-storage key for page images (R2)
         await this.sql `ALTER TABLE page_images ADD COLUMN IF NOT EXISTS object_key TEXT`;
         // Distinguish OCR batches from sentiment-scoring batches so resume routes correctly
@@ -227,6 +228,23 @@ export class PostgresAdapter {
     }
     async setBookTitle(bookId, title) {
         await this.sql `UPDATE books SET title = ${title}, updated_at = NOW() WHERE id = ${bookId}`;
+    }
+    async setBookHidden(bookId, hidden) {
+        await this.sql `UPDATE books SET hidden = ${hidden}, updated_at = NOW() WHERE id = ${bookId}`;
+    }
+    async deleteBook(bookId) {
+        const keys = await this.sql `
+      SELECT object_key FROM page_images WHERE book_id = ${bookId} AND object_key IS NOT NULL
+    `;
+        // page_sentiment's FK has no cascade, so it goes first; the rest cascade
+        // from pages but are named anyway so the order doesn't depend on that.
+        // Children before parents, so a failure part-way leaves no dangling FKs.
+        await this.sql `DELETE FROM page_sentiment WHERE page_id IN (SELECT id FROM pages WHERE book_id = ${bookId})`;
+        await this.sql `DELETE FROM page_ocr_runs WHERE page_id IN (SELECT id FROM pages WHERE book_id = ${bookId})`;
+        await this.sql `DELETE FROM page_images WHERE book_id = ${bookId}`;
+        await this.sql `DELETE FROM pages WHERE book_id = ${bookId}`;
+        await this.sql `DELETE FROM books WHERE id = ${bookId}`;
+        return keys.map((k) => k.object_key);
     }
     async getBookByDriveId(driveFileId) {
         const rows = await this.sql `

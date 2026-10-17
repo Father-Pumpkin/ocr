@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import type { AnalyzeGroup, ScoreRow, ScoreExplanation } from '../types';
-import { Spinner } from './ui';
+import { Spinner, SortTh, nextSort, compareCells, type SortState } from './ui';
+
+type SortKey = 'book' | 'page' | 'score';
 
 /**
  * The drill-down: from a number on a chart to the words behind it.
@@ -27,6 +29,8 @@ export function ScoreInspector({
   onClose: () => void;
 }) {
   const [selected, setSelected] = useState<ScoreRow | null>(null);
+  // Lowest score first by default, so the range line below reads top to bottom.
+  const [sort, setSort] = useState<SortState<SortKey>>({ key: 'score', dir: 'asc' });
 
   // pageIds comes from the server because group membership follows the grouping
   // rule; falling back to method/dimension keeps series groups usable too.
@@ -40,6 +44,27 @@ export function ScoreInspector({
     );
     return [...inGroup].sort((a, b) => a.score - b.score);
   }, [group, rows]);
+
+  const sorted = useMemo(() => {
+    const cell = (r: ScoreRow) => (sort.key === 'book' ? r.book_title : sort.key === 'page' ? r.page_number : r.score);
+    return [...pages].sort(
+      (a, b) =>
+        compareCells(cell(a), cell(b), sort.dir) ||
+        // Within one book, keep scenes in reading order.
+        compareCells(a.book_title, b.book_title, 'asc') ||
+        a.page_number - b.page_number,
+    );
+  }, [pages, sort]);
+  const th = (key: SortKey, label: string, numeric = false, align: 'left' | 'right' = 'left') => (
+    <SortTh
+      label={label}
+      active={sort.key === key}
+      dir={sort.dir}
+      onClick={() => setSort((s) => nextSort(s, key, numeric))}
+      align={align}
+      className="px-2 py-1.5"
+    />
+  );
 
   const lo = pages[0];
   const hi = pages[pages.length - 1];
@@ -75,13 +100,13 @@ export function ScoreInspector({
           <table className="w-full text-left text-xs">
             <thead className="sticky top-0 bg-surface-2 text-[10px] uppercase tracking-wide text-muted">
               <tr>
-                <th className="px-2 py-1.5 font-medium">Book</th>
-                <th className="px-2 py-1.5 font-medium">Page</th>
-                <th className="px-2 py-1.5 text-right font-medium">Score</th>
+                {th('book', 'Book')}
+                {th('page', 'Page')}
+                {th('score', 'Score', true, 'right')}
               </tr>
             </thead>
             <tbody>
-              {pages.map((r) => (
+              {sorted.map((r) => (
                 <tr
                   key={`${r.page_id}:${r.method_id}`}
                   onClick={() => setSelected(r)}

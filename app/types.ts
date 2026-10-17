@@ -10,6 +10,8 @@ export interface BookRow {
   /** Book-level OCR quality verdict: null | 'ok' | 'suspect' | 'bad'. */
   ocr_quality: string | null;
   ocr_quality_note: string | null;
+  /** Off the public library and out of analysis defaults. Only members see hidden books. */
+  hidden: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;

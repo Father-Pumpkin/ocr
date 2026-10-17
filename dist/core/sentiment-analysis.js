@@ -68,7 +68,7 @@ const GROUP_BY_PROSE = {
 async function resolveBooks(names) {
     const all = await getAllBooks();
     if (!names || names.length === 0)
-        return all.filter((b) => b.status === 'complete');
+        return all.filter((b) => b.status === 'complete' && !b.hidden);
     const wanted = [];
     for (const n of names) {
         const b = await getBookByName(n);

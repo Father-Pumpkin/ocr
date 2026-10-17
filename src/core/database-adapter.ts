@@ -9,6 +9,8 @@ export interface BookRow {
   ocr_quality: string | null;
   /** Human-readable note, e.g. "12 of 20 text pages flagged". */
   ocr_quality_note: string | null;
+  /** Taken off the library and out of analysis defaults; reversible. */
+  hidden: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -168,6 +170,14 @@ export interface DatabaseAdapter {
   setBookQuality(bookId: number, quality: string, note: string | null): Promise<void>;
   /** Updates a book's display title (preserved across re-transcription). */
   setBookTitle(bookId: number, title: string): Promise<void>;
+  /** Hides or unhides a book. Hidden books stay in the database untouched. */
+  setBookHidden(bookId: number, hidden: boolean): Promise<void>;
+  /**
+   * Permanently deletes a book and everything hanging off it — pages, scores,
+   * OCR history, lemmas, cached images. Returns the object-storage keys of the
+   * deleted images so the caller can remove them from R2.
+   */
+  deleteBook(bookId: number): Promise<string[]>;
 
   // Pages
   upsertPage(bookId: number, pageNumber: number, transcription: string, batchCustomId?: string): Promise<void>;

@@ -74,9 +74,9 @@ const ATTEMPT_TIMEOUT_MS = 25000;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const isTransientStatus = (s: number) => s === 502 || s === 503 || s === 504;
 
-async function fetchOnce(path: string, init?: RequestInit): Promise<Response> {
+async function fetchOnce(path: string, init?: RequestInit, timeoutMs = ATTEMPT_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(withBase(path), {
       ...init,
@@ -88,14 +88,14 @@ async function fetchOnce(path: string, init?: RequestInit): Promise<Response> {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, timeoutMs?: number): Promise<T> {
   const idempotent = !init?.method || init.method.toUpperCase() === 'GET';
   const maxRetries = idempotent ? RETRY_DELAYS_MS.length : 0;
   let signalledWaking = false;
 
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await fetchOnce(path, init);
+      const res = await fetchOnce(path, init, timeoutMs);
 
       // Gateway error during a cold start — back off and retry.
       if (isTransientStatus(res.status) && attempt < maxRetries) {
@@ -190,6 +190,33 @@ export const api = {
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
 
   getLibrary: () => request<{ books: BookRow[] }>('/api/library'),
+
+  // Library management is keyed by drive_file_id: an untranscribed Drive book
+  // has no DB row yet, and uploaded books carry a synthetic `upload:` id.
+  setBookHidden: (driveFileId: string, hidden: boolean) =>
+    request<{ book: BookRow }>(`/api/library/books/${enc(driveFileId)}/hidden`, {
+      method: 'POST',
+      body: JSON.stringify({ hidden }),
+    }),
+
+  deleteBook: (driveFileId: string) =>
+    request<{ stillInDrive: boolean }>(`/api/library/books/${enc(driveFileId)}`, { method: 'DELETE' }),
+
+  transcribeBook: (driveFileId: string) =>
+    request<{ book: BookRow; batchId: string }>(
+      `/api/library/books/${enc(driveFileId)}/transcribe`,
+      { method: 'POST' },
+      // Downloads the PDF from Drive and submits it to the Batch API.
+      120_000,
+    ),
+
+  uploadBook: (body: { fileName: string; title?: string; pdfBase64: string }) =>
+    request<{ book: BookRow; batchId: string; pageCount: number }>(
+      '/api/library/upload',
+      { method: 'POST', body: JSON.stringify(body) },
+      // Renders every page, stores the images and submits the batch before answering.
+      300_000,
+    ),
 
   getModels: () => request<{ models: string[]; default: string }>('/api/models'),
 

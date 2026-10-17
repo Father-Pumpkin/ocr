@@ -25,7 +25,20 @@ import type {
   SentimentBatch,
   StyleFamily,
 } from '../types';
-import { Button, Card, ErrorBox, Label, Loading, Spinner, Badge, buttonClass } from '../components/ui';
+import {
+  Button,
+  Card,
+  ErrorBox,
+  Label,
+  Loading,
+  Spinner,
+  Badge,
+  buttonClass,
+  SortTh,
+  nextSort,
+  compareCells,
+  type SortState,
+} from '../components/ui';
 import { TagSelect } from '../components/TagSelect';
 import { LexiconUpload } from '../components/LexiconUpload';
 import { ScoreChart, type ChartView } from '../components/ScoreChart';
@@ -56,6 +69,8 @@ const DEFAULT_SECTION = {
   startTag: 'first page of content',
   endTag: 'last page of content',
 } as const;
+
+type ResultSortKey = 'group' | 'dimension' | 'method' | 'count' | 'mean';
 
 const FAMILY_LABEL: Record<StyleFamily, string> = {
   bag_of_words: 'Bag of words',
@@ -94,7 +109,7 @@ export function Analysis() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // --- Selection -----------------------------------------------------------
-  const [family, setFamily] = useState<StyleFamily>('llm');
+  const [family, setFamily] = useState<StyleFamily>('bag_of_words');
   const [styleId, setStyleId] = useState('');
   const [rubric, setRubric] = useState('');
   const [rubricName, setRubricName] = useState('');
@@ -582,7 +597,7 @@ export function Analysis() {
       {/* ---- Step 2: the instrument(s) ---- */}
       <Section step={2} title="How to measure" hint="The scoring instrument.">
         <div className="flex gap-2">
-          {(['llm', 'bag_of_words'] as StyleFamily[]).map((f) => (
+          {(['bag_of_words', 'llm'] as StyleFamily[]).map((f) => (
             <button
               key={f}
               onClick={() => {
@@ -1450,6 +1465,39 @@ function ResultsPanel({
 }) {
   const hasScores = results.groups.length > 0;
   const [view, setView] = useState<'chart' | 'table'>('chart');
+  // null = the order the server returned, which follows the grouping.
+  const [sort, setSort] = useState<SortState<ResultSortKey> | null>(null);
+  const rows = useMemo(() => {
+    const withMean = results.groups.map((g, i) => ({
+      g,
+      i,
+      mean:
+        g.mean ??
+        (g.points?.length ? g.points.reduce((s, p) => s + p.score, 0) / g.points.length : null),
+    }));
+    if (!sort) return withMean;
+    const cell = (r: (typeof withMean)[number]): string | number | null =>
+      sort.key === 'group'
+        ? r.g.key
+        : sort.key === 'dimension'
+          ? r.g.dimension
+          : sort.key === 'method'
+            ? r.g.method
+            : sort.key === 'count'
+              ? r.g.count
+              : r.mean;
+    return [...withMean].sort((a, b) => compareCells(cell(a), cell(b), sort.dir) || a.i - b.i);
+  }, [results.groups, sort]);
+  const th = (key: ResultSortKey, label: string, numeric = false, align: 'left' | 'right' = 'left') => (
+    <SortTh
+      label={label}
+      active={sort?.key === key}
+      dir={sort?.key === key ? sort.dir : 'asc'}
+      onClick={() => setSort((s) => nextSort(s, key, numeric))}
+      align={align}
+      className="px-3 py-2"
+    />
+  );
   return (
     <Card className="p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1528,20 +1576,15 @@ function ResultsPanel({
             <table className="w-full text-left text-sm">
               <thead className="bg-surface-2 text-xs uppercase tracking-wide text-muted">
                 <tr>
-                  <th className="px-3 py-2 font-medium">Group</th>
-                  <th className="px-3 py-2 font-medium">Dimension</th>
-                  <th className="px-3 py-2 font-medium">Method</th>
-                  <th className="px-3 py-2 text-right font-medium">Pages</th>
-                  <th className="px-3 py-2 font-medium">Mean score</th>
+                  {th('group', 'Group')}
+                  {th('dimension', 'Dimension')}
+                  {th('method', 'Method')}
+                  {th('count', 'Pages', true, 'right')}
+                  {th('mean', 'Mean score', true)}
                 </tr>
               </thead>
               <tbody>
-                {results.groups.map((g, i) => {
-                  const mean =
-                    g.mean ??
-                    (g.points?.length
-                      ? g.points.reduce((s, p) => s + p.score, 0) / g.points.length
-                      : null);
+                {rows.map(({ g, i, mean }) => {
                   return (
                     <tr key={`${g.dimension}-${g.method}-${g.key}-${i}`} className="border-t border-border">
                       <td className="max-w-xs truncate px-3 py-2 text-ink" title={g.key}>

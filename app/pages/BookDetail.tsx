@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import type { PageRow } from '../types';
 import { parseTags } from '../types';
 import { Loading, ErrorBox, EmptyState, Card, Button, IconButton, Badge, buttonClass } from '../components/ui';
-import { ChevronLeft, ShieldCheck, Alert, ImageOff, Download, Pencil, Check, Gauge } from '../components/icons';
+import { ChevronLeft, ImageOff, Download, Pencil, Gauge, Eye, EyeOff, Trash } from '../components/icons';
 import { useIsMember } from '../lib/session';
 
 function snippet(page: PageRow, textHidden: boolean): string {
@@ -17,20 +17,21 @@ function snippet(page: PageRow, textHidden: boolean): string {
   return t.length > 120 ? t.slice(0, 120) + '…' : t;
 }
 
-type BookMeta = { title: string; ocr_quality: string | null; ocr_quality_note: string | null };
+type BookMeta = { title: string; drive_file_id: string; hidden: boolean };
+
+const errorText = (e: unknown) => (e instanceof ApiError ? e.message : String(e));
 
 export function BookDetail() {
   const { name = '' } = useParams();
   const navigate = useNavigate();
-  // Renaming and the OCR quality check both write (and the latter spends), so
-  // they're member-only. Reading the book and analysing it are not.
+  // Renaming, hiding and deleting all write, so they're member-only. Reading
+  // the book and analysing it are not.
   const isMember = useIsMember();
   const [book, setBook] = useState<BookMeta | null>(null);
   const [pages, setPages] = useState<PageRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [checkMsg, setCheckMsg] = useState<string | null>(null);
+  const [managing, setManaging] = useState(false);
   const [opError, setOpError] = useState<string | null>(null);
 
   // Rename
@@ -38,17 +39,12 @@ export function BookDetail() {
   const [titleInput, setTitleInput] = useState('');
   const [savingTitle, setSavingTitle] = useState(false);
 
-  // Filter
-  const [onlyFlagged, setOnlyFlagged] = useState(false);
-
   useEffect(() => {
     setPages(null);
     setError(null);
     setNotFound(false);
-    setCheckMsg(null);
     setOpError(null);
     setRenaming(false);
-    setOnlyFlagged(false);
     api
       .getBookPages(name)
       .then((d) => {
@@ -61,27 +57,38 @@ export function BookDetail() {
       });
   }, [name]);
 
-  const flaggedCount = useMemo(
-    () => (pages ?? []).filter((p) => p.ocr_quality === 'suspect').length,
-    [pages],
-  );
-  const visiblePages = useMemo(
-    () => (onlyFlagged ? (pages ?? []).filter((p) => p.ocr_quality === 'suspect') : pages ?? []),
-    [pages, onlyFlagged],
-  );
-
-  async function onCheck() {
-    setChecking(true);
-    setCheckMsg(null);
+  async function toggleHidden() {
+    if (!book) return;
+    setManaging(true);
+    setOpError(null);
     try {
-      const r = await api.verifyBook(name);
-      setPages(r.pages);
-      setBook((b) => (b ? { ...b, ocr_quality: r.quality, ocr_quality_note: r.note } : b));
-      setCheckMsg(`Checked ${r.total} page${r.total === 1 ? '' : 's'} — ${r.flagged} flagged`);
+      const r = await api.setBookHidden(book.drive_file_id, !book.hidden);
+      setBook((b) => (b ? { ...b, hidden: r.book.hidden } : b));
     } catch (e) {
-      setCheckMsg(`Check failed: ${e instanceof ApiError ? e.message : String(e)}`);
+      setOpError(`Couldn't ${book.hidden ? 'unhide' : 'hide'} the book: ${errorText(e)}`);
     } finally {
-      setChecking(false);
+      setManaging(false);
+    }
+  }
+
+  async function onDelete() {
+    if (!book) return;
+    const fromDrive = !book.drive_file_id.startsWith('upload:');
+    const ok = window.confirm(
+      `Permanently delete “${book.title}”?\n\nThis erases its transcription, edits, tags, scores and images. It can't be undone.` +
+        (fromDrive
+          ? '\n\nThe PDF is still in Drive, so the book will come back as untranscribed. Hide it if you want it gone from the library.'
+          : ''),
+    );
+    if (!ok) return;
+    setManaging(true);
+    setOpError(null);
+    try {
+      await api.deleteBook(book.drive_file_id);
+      navigate('/');
+    } catch (e) {
+      setOpError(`Delete failed: ${errorText(e)}`);
+      setManaging(false);
     }
   }
 
@@ -97,7 +104,7 @@ export function BookDetail() {
       await api.renameBook(name, next);
       navigate(`/book/${encodeURIComponent(next)}`);
     } catch (e) {
-      setOpError(`Rename failed: ${e instanceof ApiError ? e.message : String(e)}`);
+      setOpError(`Rename failed: ${errorText(e)}`);
       setSavingTitle(false);
       setRenaming(false);
     }
@@ -165,37 +172,42 @@ export function BookDetail() {
           </div>
         )}
 
-        {pages && pages.length > 0 && (
-          <div className="flex flex-col items-end gap-1.5">
-            <div className="flex items-center gap-2">
+        {book && (
+          <div className="flex flex-wrap items-center gap-2">
+            {pages && pages.length > 0 && (
               <Link
-                to={`/analysis?book=${encodeURIComponent(book?.title ?? name)}`}
+                to={`/analysis?book=${encodeURIComponent(book.title)}`}
                 className={buttonClass('secondary', 'sm')}
                 title="Run a sentiment analysis scoped to this book"
               >
                 <Gauge className="h-4 w-4" />
                 Analyse
               </Link>
-              {isMember && (
-                <Button variant="secondary" size="sm" onClick={exportTxt} title="Download the full transcription as a .txt">
-                  <Download className="h-4 w-4" />
-                  Download
-                </Button>
-              )}
-              {isMember && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={onCheck}
-                  disabled={checking}
-                  title="Run a cheap Sonnet proofreader over every scene"
-                >
-                  <ShieldCheck className="h-4 w-4" />
-                  {checking ? 'Checking…' : 'Check OCR quality'}
-                </Button>
-              )}
-            </div>
-            {checkMsg && <span className="text-xs text-muted">{checkMsg}</span>}
+            )}
+            {isMember && pages && pages.length > 0 && (
+              <Button variant="secondary" size="sm" onClick={exportTxt} title="Download the full transcription as a .txt">
+                <Download className="h-4 w-4" />
+                Download
+              </Button>
+            )}
+            {isMember && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={toggleHidden}
+                disabled={managing}
+                title={book.hidden ? 'Put this book back in the library' : 'Take this book off the library and out of analysis'}
+              >
+                {book.hidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                {book.hidden ? 'Unhide' : 'Hide'}
+              </Button>
+            )}
+            {isMember && (
+              <Button variant="danger" size="sm" onClick={onDelete} disabled={managing} title="Permanently delete this book's data">
+                <Trash className="h-4 w-4" />
+                Delete
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -206,52 +218,25 @@ export function BookDetail() {
         </div>
       )}
 
-      {book?.ocr_quality === 'bad' && (
-        <Banner tone="danger">
-          <strong className="font-semibold">Most scenes look garbled.</strong> {book.ocr_quality_note}. You're likely
-          better off re-transcribing the whole book on a stronger model than fixing it scene-by-scene.
-        </Banner>
-      )}
-      {book?.ocr_quality === 'suspect' && (
-        <Banner tone="warn">
-          <strong className="font-semibold">Some scenes look suspect.</strong> {book.ocr_quality_note}. Open the flagged
-          scenes and re-transcribe them with a stronger model.
-        </Banner>
+      {book?.hidden && (
+        <p className="mb-5 rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm text-muted">
+          This book is hidden. It's off the library and out of analysis until you unhide it.
+        </p>
       )}
 
       {error && <ErrorBox message={error} />}
-      {notFound && (
-        <EmptyState>This book hasn't been transcribed yet. Run a transcription from Claude Desktop, then refresh.</EmptyState>
-      )}
+      {notFound && <EmptyState>This book hasn't been transcribed yet. Start it from the library, then refresh.</EmptyState>}
       {!error && !notFound && !pages && <Loading label="Loading scenes…" />}
-      {pages && pages.length === 0 && <EmptyState>No pages stored for this book.</EmptyState>}
+      {pages && pages.length === 0 && (
+        <EmptyState>No pages yet. If the book was just added, its transcription is still running.</EmptyState>
+      )}
 
       {pages && pages.length > 0 && (
-        <>
-          {flaggedCount > 0 && (
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm text-muted">
-                {pages.length} pages · {flaggedCount} flagged
-              </span>
-              <button
-                onClick={() => setOnlyFlagged((v) => !v)}
-                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
-                  onlyFlagged
-                    ? 'border-warn/40 bg-warn-soft text-warn'
-                    : 'border-border bg-surface text-muted hover:text-ink'
-                }`}
-              >
-                <Alert className="h-3.5 w-3.5" />
-                {onlyFlagged ? 'Showing flagged only' : 'Show only flagged'}
-              </button>
-            </div>
-          )}
-          <Card className="divide-y divide-border overflow-hidden">
-            {visiblePages.map((p) => (
-              <PageRowItem key={p.id} book={name} page={p} />
-            ))}
-          </Card>
-        </>
+        <Card className="divide-y divide-border overflow-hidden">
+          {pages.map((p) => (
+            <PageRowItem key={p.id} book={name} page={p} />
+          ))}
+        </Card>
       )}
     </div>
   );
@@ -260,7 +245,6 @@ export function BookDetail() {
 function PageRowItem({ book, page }: { book: string; page: PageRow }) {
   const isMember = useIsMember();
   const tags = parseTags(page.tags);
-  const suspect = page.ocr_quality === 'suspect';
   const [imgOk, setImgOk] = useState(true);
 
   // The single-scene view is a member surface: it exists to read and edit one
@@ -299,17 +283,6 @@ function PageRowItem({ book, page }: { book: string; page: PageRow }) {
         <span className="w-6 shrink-0 text-right font-serif text-sm text-faint">{page.page_number}</span>
         <span className="min-w-0 flex-1 truncate text-sm text-ink">{snippet(page, !isMember)}</span>
         <span className="flex shrink-0 items-center gap-1.5">
-          {page.ocr_quality === 'ok' && (
-            <Badge tone="ok">
-              <Check className="h-3 w-3" />
-            </Badge>
-          )}
-          {suspect && (
-            <Badge tone="warn">
-              <Alert className="h-3 w-3" />
-              check
-            </Badge>
-          )}
           {page.is_edited && <Badge tone="accent">edited</Badge>}
           {tags.map((t) => (
             <Badge key={t} tone="neutral">
@@ -318,15 +291,6 @@ function PageRowItem({ book, page }: { book: string; page: PageRow }) {
           ))}
         </span>
       </div>
-      {suspect && page.ocr_quality_reason && (
-        <p className="mt-1.5 pl-10 text-xs leading-snug text-warn sm:pl-[5.5rem]">{page.ocr_quality_reason}</p>
-      )}
     </Row>
   );
-}
-
-function Banner({ tone, children }: { tone: 'warn' | 'danger'; children: ReactNode }) {
-  const cls =
-    tone === 'danger' ? 'border-danger/30 bg-danger-soft text-danger' : 'border-warn/30 bg-warn-soft text-warn';
-  return <div className={`mb-5 rounded-lg border px-4 py-3 text-sm ${cls}`}>{children}</div>;
 }

@@ -8,11 +8,9 @@ import { useIsMember } from '../lib/session';
 import {
   ChevronLeft,
   ChevronRight,
-  Alert,
   Check,
   Upload,
   Refresh,
-  ShieldCheck,
   Plus,
   Trash,
   ImageOff,
@@ -74,8 +72,6 @@ export function PageEditor() {
   const [inserting, setInserting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [markingOk, setMarkingOk] = useState(false);
   const [togglingIllo, setTogglingIllo] = useState(false);
   const [splitOpen, setSplitOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -83,17 +79,6 @@ export function PageEditor() {
   const page = useMemo(() => pages?.find((p) => p.page_number === pageNumber) ?? null, [pages, pageNumber]);
   const hasPrev = !!pages?.some((p) => p.page_number === pageNumber - 1);
   const hasNext = !!pages?.some((p) => p.page_number === pageNumber + 1);
-
-  // Next suspect page after this one (wraps around); null if none flagged.
-  const nextFlagged = useMemo(() => {
-    if (!pages) return null;
-    const flagged = pages
-      .filter((p) => p.ocr_quality === 'suspect')
-      .map((p) => p.page_number)
-      .sort((a, b) => a - b);
-    if (flagged.length === 0) return null;
-    return flagged.find((num) => num > pageNumber) ?? flagged[0];
-  }, [pages, pageNumber]);
 
   const load = useCallback(() => {
     setPages(null);
@@ -183,7 +168,7 @@ export function PageEditor() {
   }
 
   const busy =
-    saving || retranscribing || inserting || deleting || uploading || checking || markingOk || togglingIllo;
+    saving || retranscribing || inserting || deleting || uploading || togglingIllo;
 
   async function onSave() {
     setSaving(true);
@@ -235,32 +220,6 @@ export function PageEditor() {
       setActionError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setRetranscribing(false);
-    }
-  }
-
-  async function onCheckQuality() {
-    setChecking(true);
-    setActionError(null);
-    try {
-      const { page: updated } = await api.verifyPage(name, pageNumber);
-      applyUpdatedPage(updated);
-    } catch (e) {
-      setActionError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setChecking(false);
-    }
-  }
-
-  async function onMarkOk() {
-    setMarkingOk(true);
-    setActionError(null);
-    try {
-      const { page: updated } = await api.markPageOk(name, pageNumber);
-      applyUpdatedPage(updated);
-    } catch (e) {
-      setActionError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setMarkingOk(false);
     }
   }
 
@@ -371,17 +330,6 @@ export function PageEditor() {
           <span className="text-ink">Scene {pageNumber}</span>
         </nav>
         <div className="flex items-center gap-2">
-          {nextFlagged != null && nextFlagged !== pageNumber && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => go(`/book/${encodeURIComponent(name)}/page/${nextFlagged}`)}
-              title="Jump to the next flagged page"
-            >
-              <Alert className="h-3.5 w-3.5 text-warn" />
-              Next flagged
-            </Button>
-          )}
           <IconButton
             onClick={() => go(`/book/${encodeURIComponent(name)}/page/${pageNumber - 1}`)}
             disabled={!hasPrev}
@@ -398,16 +346,6 @@ export function PageEditor() {
           </IconButton>
         </div>
       </div>
-
-      {page.ocr_quality === 'suspect' && (
-        <div className="mb-5 flex gap-3 rounded-lg border border-warn/30 bg-warn-soft px-4 py-3 text-sm text-warn">
-          <Alert className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>
-            <span className="font-semibold">This transcription looks suspect.</span> {page.ocr_quality_reason}{' '}
-            Re-transcribe with a stronger model, or click <span className="font-medium">Mark OK</span> if it's fine.
-          </p>
-        </div>
-      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Image */}
@@ -456,12 +394,6 @@ export function PageEditor() {
           <div className="flex items-center justify-between gap-2">
             <Label>Transcription</Label>
             <span className="flex items-center gap-2">
-              {page.ocr_quality === 'ok' && (
-                <Badge tone="ok">
-                  <Check className="h-3 w-3" />
-                  checked
-                </Badge>
-              )}
               {isIllustration && <Badge tone="neutral">illustration</Badge>}
               {page.is_edited && <Badge tone="accent">edited</Badge>}
               {isMember && (
@@ -628,18 +560,8 @@ export function PageEditor() {
             </select>
           </div>
 
-          {/* Quality / classification */}
+          {/* Classification */}
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={onCheckQuality} disabled={busy} title="Cheap Sonnet proofreader check">
-              <ShieldCheck className="h-4 w-4" />
-              {checking ? 'Checking…' : 'Check quality'}
-            </Button>
-            {page.ocr_quality !== 'ok' && (
-              <Button variant="secondary" size="sm" onClick={onMarkOk} disabled={busy} title="Accept this transcription and clear any suspect flag">
-                <Check className="h-4 w-4" />
-                {markingOk ? 'Marking…' : 'Mark OK'}
-              </Button>
-            )}
             <Button
               variant="secondary"
               size="sm"

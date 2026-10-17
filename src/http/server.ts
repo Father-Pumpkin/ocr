@@ -12,6 +12,7 @@ import { requireAuth, type AuthedRequest } from './middleware/require-auth.js';
 import { LIMITS } from './middleware/rate-limit.js';
 import { basePath, isProd } from './session.js';
 import { processPendingSentimentBatches, seedLexiconsFromDisk } from '../core/analysis-service.js';
+import { processPendingOcrBatches } from '../core/book-service.js';
 
 /**
  * Starts the HTTP API server that the web app calls. Routes under /api delegate
@@ -152,6 +153,15 @@ function startBatchPoller(): void {
       }
     } catch (err) {
       process.stderr.write(`[OCR HTTP] Batch poll failed: ${err}\n`);
+    }
+    // Books added from the web app are transcribed by batch too.
+    try {
+      const done = (await processPendingOcrBatches()).filter((r) => r.processedCount > 0);
+      for (const r of done) {
+        process.stderr.write(`[OCR HTTP] OCR batch ${r.batchId}: stored ${r.processedCount} page(s).\n`);
+      }
+    } catch (err) {
+      process.stderr.write(`[OCR HTTP] OCR batch poll failed: ${err}\n`);
     }
   };
   // unref so a pending timer never keeps the process alive on shutdown.

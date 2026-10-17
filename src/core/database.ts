@@ -28,6 +28,8 @@ export async function syncBookPageCount(bookId: number) { return (await getAdapt
 export async function updateBookStatus(bookId: number, status: string, pageCount?: number) { return (await getAdapter()).updateBookStatus(bookId, status, pageCount); }
 export async function setBookQuality(bookId: number, quality: string, note: string | null) { return (await getAdapter()).setBookQuality(bookId, quality, note); }
 export async function setBookTitle(bookId: number, title: string) { return (await getAdapter()).setBookTitle(bookId, title); }
+export async function setBookHidden(bookId: number, hidden: boolean) { return (await getAdapter()).setBookHidden(bookId, hidden); }
+export async function deleteBook(bookId: number) { return (await getAdapter()).deleteBook(bookId); }
 export async function upsertPage(bookId: number, pageNumber: number, transcription: string, batchCustomId?: string) { return (await getAdapter()).upsertPage(bookId, pageNumber, transcription, batchCustomId); }
 export async function updatePageTranscription(bookId: number, pageNumber: number, transcription: string, markEdited?: boolean) { return (await getAdapter()).updatePageTranscription(bookId, pageNumber, transcription, markEdited); }
 export async function getPages(bookId: number, pageStart?: number, pageEnd?: number) { return (await getAdapter()).getPages(bookId, pageStart, pageEnd); }

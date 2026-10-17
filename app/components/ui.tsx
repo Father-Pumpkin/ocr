@@ -129,3 +129,68 @@ export function ErrorBox({ message }: { message: string }) {
 export function EmptyState({ children }: { children: ReactNode }) {
   return <div className="py-16 text-center text-sm text-muted">{children}</div>;
 }
+
+/* ---- Sortable tables ----------------------------------------------------- */
+export type SortDir = 'asc' | 'desc';
+export interface SortState<K extends string> {
+  key: K;
+  dir: SortDir;
+}
+
+/**
+ * Next sort state after clicking a column. A new column starts in the direction
+ * that's usually wanted first — A→Z for text, highest first for numbers — and a
+ * second click on the same column flips it.
+ */
+export function nextSort<K extends string>(
+  current: SortState<K> | null,
+  key: K,
+  numeric: boolean,
+): SortState<K> {
+  if (current?.key === key) return { key, dir: current.dir === 'asc' ? 'desc' : 'asc' };
+  return { key, dir: numeric ? 'desc' : 'asc' };
+}
+
+/** Compares two cell values for a sort; nulls always sink to the bottom. */
+export function compareCells(a: string | number | null, b: string | number | null, dir: SortDir): number {
+  if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
+  const c = typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b), undefined, { numeric: true });
+  return dir === 'asc' ? c : -c;
+}
+
+/** A <th> whose label sorts the table. */
+export function SortTh({
+  label,
+  active,
+  dir,
+  onClick,
+  align = 'left',
+  className = '',
+}: {
+  label: ReactNode;
+  active: boolean;
+  dir: SortDir;
+  onClick: () => void;
+  align?: 'left' | 'right';
+  className?: string;
+}) {
+  return (
+    <th
+      className={`font-medium ${align === 'right' ? 'text-right' : ''} ${className}`}
+      aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        className={`inline-flex items-center gap-1 uppercase tracking-wide transition-colors hover:text-ink ${
+          active ? 'text-ink' : ''
+        }`}
+      >
+        {label}
+        <span aria-hidden="true" className={active ? '' : 'opacity-30'}>
+          {active ? (dir === 'asc' ? '↑' : '↓') : '↕'}
+        </span>
+      </button>
+    </th>
+  );
+}
