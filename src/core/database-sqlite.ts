@@ -43,6 +43,17 @@ interface SqlitePageRow {
   updated_at: string;
 }
 
+/** SQLite has no boolean type, so `hidden` comes back as 0/1. */
+type SqliteBookRow = Omit<BookRow, 'hidden'> & { hidden: number | null };
+
+function toBook(row: SqliteBookRow): BookRow {
+  return { ...row, hidden: !!row.hidden };
+}
+
+function toBookOrUndefined(row: SqliteBookRow | undefined): BookRow | undefined {
+  return row ? toBook(row) : undefined;
+}
+
 function coercePage(row: SqlitePageRow): PageRow {
   return {
     ...row,
@@ -270,6 +281,11 @@ export class SqliteAdapter implements DatabaseAdapter {
     } catch {
       // Column already exists — no-op
     }
+    try {
+      this.db.exec(`ALTER TABLE books ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0`);
+    } catch {
+      // Column already exists — no-op
+    }
 
     // Object-storage key for page images (R2)
     try {
@@ -344,7 +360,7 @@ export class SqliteAdapter implements DatabaseAdapter {
     `).run(title, driveFileId, driveFileName, createdBy);
 
     return Promise.resolve(
-      this.db.prepare('SELECT * FROM books WHERE drive_file_id = ?').get(driveFileId) as BookRow
+      toBook(this.db.prepare('SELECT * FROM books WHERE drive_file_id = ?').get(driveFileId) as SqliteBookRow)
     );
   }
 
@@ -353,21 +369,44 @@ export class SqliteAdapter implements DatabaseAdapter {
     return Promise.resolve();
   }
 
+  async setBookHidden(bookId: number, hidden: boolean): Promise<void> {
+    this.db.prepare('UPDATE books SET hidden = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(hidden ? 1 : 0, bookId);
+    return Promise.resolve();
+  }
+
+  async deleteBook(bookId: number): Promise<string[]> {
+    const run = this.db.transaction(() => {
+      const keys = this.db
+        .prepare('SELECT object_key FROM page_images WHERE book_id = ? AND object_key IS NOT NULL')
+        .all(bookId) as { object_key: string }[];
+      const pageIds = 'SELECT id FROM pages WHERE book_id = ?';
+      // page_sentiment's FK has no cascade, so it goes first; the rest cascade
+      // from pages but are named anyway so the order doesn't depend on that.
+      this.db.prepare(`DELETE FROM page_sentiment WHERE page_id IN (${pageIds})`).run(bookId);
+      this.db.prepare(`DELETE FROM page_ocr_runs WHERE page_id IN (${pageIds})`).run(bookId);
+      this.db.prepare('DELETE FROM page_images WHERE book_id = ?').run(bookId);
+      this.db.prepare('DELETE FROM pages WHERE book_id = ?').run(bookId);
+      this.db.prepare('DELETE FROM books WHERE id = ?').run(bookId);
+      return keys.map((k) => k.object_key);
+    });
+    return Promise.resolve(run());
+  }
+
   async getBookByDriveId(driveFileId: string): Promise<BookRow | undefined> {
     return Promise.resolve(
-      this.db.prepare('SELECT * FROM books WHERE drive_file_id = ?').get(driveFileId) as BookRow | undefined
+      toBookOrUndefined(this.db.prepare('SELECT * FROM books WHERE drive_file_id = ?').get(driveFileId) as SqliteBookRow | undefined)
     );
   }
 
   async getBookByName(name: string): Promise<BookRow | undefined> {
     return Promise.resolve(
-      this.db.prepare('SELECT * FROM books WHERE drive_file_name = ? OR title = ?').get(name, name) as BookRow | undefined
+      toBookOrUndefined(this.db.prepare('SELECT * FROM books WHERE drive_file_name = ? OR title = ?').get(name, name) as SqliteBookRow | undefined)
     );
   }
 
   async getAllBooks(): Promise<BookRow[]> {
     return Promise.resolve(
-      this.db.prepare('SELECT * FROM books ORDER BY title').all() as BookRow[]
+      (this.db.prepare('SELECT * FROM books ORDER BY title').all() as SqliteBookRow[]).map(toBook)
     );
   }
 

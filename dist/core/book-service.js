@@ -6,11 +6,13 @@
  * primitives directly. Tools that return formatted text strings stay where they
  * are; this module is for structured-data operations that any UI can consume.
  */
-import { getAllBooks, getBookByName, getPages, updatePageTranscription, setPageTags, getAllTags, hasAnyPageImage, insertPageAfter, deletePage, syncBookPageCount, setBookTitle, setPageIllustration, recordOcrRun, getOcrRuns, } from './database.js';
+import { getAllBooks, getBookByName, getPages, updatePageTranscription, setPageTags, getAllTags, hasAnyPageImage, insertPageAfter, deletePage, syncBookPageCount, setBookTitle, setBookHidden, deleteBook, getBookByDriveId, upsertBook, updateBookStatus, createBatchJob, getRecentBatchJobs, setPageIllustration, recordOcrRun, getOcrRuns, } from './database.js';
 import { listPdfsInFolder, downloadPdf } from './google-drive.js';
 import { renderAllPdfPages } from './render-pdf.js';
 import { readPageImageBase64, writePageImageBase64, imageRenderScale } from './image-service.js';
-import { transcribeSinglePageImage, DEFAULT_MODEL } from './ocr.js';
+import { transcribeSinglePageImage, createOcrBatch, checkAndProcessBatch, DEFAULT_MODEL } from './ocr.js';
+import * as blob from './blob-store.js';
+import crypto from 'node:crypto';
 import { verifyBookById, verifyPageById, markPageOkById } from './quality.js';
 import { splitImageHorizontally } from './image-split.js';
 import { parsePageTags } from './sections.js';
@@ -35,17 +37,18 @@ function withDerivedStatus(book) {
  * synthetic placeholder with id=-1 and status='pending'. If Drive is
  * unreachable we fall back to the DB-only view.
  */
-export async function listLibrary() {
+export async function listLibrary(opts = {}) {
     const [dbBooks, driveFiles] = await Promise.all([
         getAllBooks(),
         // Never trigger an interactive OAuth popup just to render the library —
         // fall back to DB-only if Drive isn't connected.
         listPdfsInFolder({ interactive: false }).catch(() => []),
     ]);
+    const visible = (b) => opts.includeHidden || !b.hidden;
     if (driveFiles.length === 0)
-        return dbBooks.map(withDerivedStatus);
+        return dbBooks.filter(visible).map(withDerivedStatus);
     const dbByDriveId = new Map(dbBooks.map((b) => [b.drive_file_id, b]));
-    return driveFiles.map((file) => {
+    const fromDrive = driveFiles.map((file) => {
         const db = dbByDriveId.get(file.id);
         return db ? withDerivedStatus(db) : {
             id: -1,
@@ -56,11 +59,17 @@ export async function listLibrary() {
             status: 'pending',
             ocr_quality: null,
             ocr_quality_note: null,
+            hidden: false,
             created_by: null,
             created_at: '',
             updated_at: '',
         };
     });
+    // Uploaded books never appear in Drive, so the Drive listing alone would drop them.
+    const uploaded = dbBooks.filter(isUploaded).map(withDerivedStatus);
+    return [...fromDrive, ...uploaded]
+        .filter(visible)
+        .sort((a, b) => a.title.localeCompare(b.title));
 }
 /**
  * Returns the book row and its pages for the requested range. Returns null
@@ -111,7 +120,12 @@ export async function getPageImageData(bookName, pageNumber) {
     if (await hasAnyPageImage(book.id))
         return { imageData: null, driveUrl };
     // Full miss — render the whole PDF once and store (object storage when configured).
-    const pdfBuffer = await downloadPdf(book.drive_file_id, { interactive: false });
+    // An uploaded book has no Drive file; its PDF is in object storage, if anywhere.
+    const pdfBuffer = isUploaded(book)
+        ? (await blob.getObject(uploadedPdfKey(book.drive_file_id)))?.body
+        : await downloadPdf(book.drive_file_id, { interactive: false });
+    if (!pdfBuffer)
+        return { imageData: null, driveUrl };
     const images = await renderAllPdfPages(pdfBuffer, imageRenderScale());
     for (let i = 0; i < images.length; i++) {
         await writePageImageBase64(book.id, i + 1, images[i]);
@@ -346,4 +360,146 @@ export async function setPageIllustrationData(bookName, pageNumber, isIllustrati
     if (!page)
         throw new NotFoundError(`Page ${pageNumber} not found in "${book.title}".`);
     return page;
+}
+// ---------------------------------------------------------------------------
+// Library management — hiding, deleting and adding books
+// ---------------------------------------------------------------------------
+/**
+ * Books added through the web app have no Drive file, so they get a synthetic
+ * drive_file_id with this prefix. It keeps the column's uniqueness doing its job
+ * and lets every caller tell the two kinds apart without a schema change.
+ */
+const UPLOAD_PREFIX = 'upload:';
+export function isUploaded(book) {
+    return book.drive_file_id.startsWith(UPLOAD_PREFIX);
+}
+function uploadedPdfKey(driveFileId) {
+    return `pdfs/${driveFileId.slice(UPLOAD_PREFIX.length)}.pdf`;
+}
+/** Thrown when a request is well-formed but can't be carried out right now (→ 409). */
+export class BookConflictError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'BookConflictError';
+    }
+}
+/**
+ * Resolves a library entry to a DB row, creating one for a Drive file that has
+ * never been transcribed. Hiding an untranscribed Drive book needs a row to
+ * hold the flag; without one it would reappear on the next listing.
+ */
+async function bookForDriveId(driveFileId) {
+    const existing = await getBookByDriveId(driveFileId);
+    if (existing)
+        return existing;
+    if (driveFileId.startsWith(UPLOAD_PREFIX))
+        throw new NotFoundError('Book not found.');
+    const files = await listPdfsInFolder({ interactive: false });
+    const file = files.find((f) => f.id === driveFileId);
+    if (!file)
+        throw new NotFoundError('That file is no longer in the Drive folder.');
+    return upsertBook(file.id, file.name, file.name.replace(/\.pdf$/i, ''));
+}
+/** Hides or unhides a book. Reversible; nothing else about the book changes. */
+export async function setBookHiddenData(driveFileId, hidden) {
+    const book = await bookForDriveId(driveFileId);
+    await setBookHidden(book.id, hidden);
+    return { ...book, hidden };
+}
+/**
+ * Permanently deletes a book's pages, scores, OCR history and images. A book
+ * that is still in the Drive folder comes back as untranscribed, because the
+ * Drive file is the source and this app can only read it.
+ */
+export async function deleteBookData(driveFileId) {
+    const book = await getBookByDriveId(driveFileId);
+    if (!book)
+        throw new NotFoundError('Book not found.');
+    if (book.status === 'transcribing') {
+        throw new BookConflictError('This book is being transcribed. Wait for that to finish before deleting it.');
+    }
+    const keys = await deleteBook(book.id);
+    // Storage cleanup is best-effort: the rows are gone, and an orphaned object
+    // costs a few cents where a failed delete would strand a half-deleted book.
+    const extra = isUploaded(book) ? [uploadedPdfKey(book.drive_file_id)] : [];
+    await Promise.all([...keys, ...extra].map((k) => blob.deleteObject(k)));
+    return { stillInDrive: !isUploaded(book) };
+}
+/**
+ * Submits a Drive book to the Batch API for transcription. Results land when
+ * the HTTP server's batch poller picks them up (see processPendingOcrBatches).
+ */
+export async function transcribeDriveBookData(driveFileId, model = DEFAULT_MODEL) {
+    const book = await bookForDriveId(driveFileId);
+    if (isUploaded(book))
+        throw new BookConflictError('Uploaded books are transcribed when they are uploaded.');
+    if (book.status === 'transcribing')
+        throw new BookConflictError('This book is already being transcribed.');
+    if (book.status === 'complete')
+        throw new BookConflictError('This book is already transcribed.');
+    const pdf = await downloadPdf(book.drive_file_id, { interactive: false });
+    const batchId = await createOcrBatch([{ bookId: book.id, bookTitle: book.title, pdfBase64: pdf.toString('base64') }], model);
+    await createBatchJob(batchId, [book.id]);
+    await updateBookStatus(book.id, 'transcribing');
+    return { book: { ...book, status: 'transcribing' }, batchId };
+}
+/**
+ * Adds a book from an uploaded PDF: renders and stores its page images, keeps
+ * the PDF in object storage when that's configured, and submits it for batch
+ * transcription.
+ *
+ * Images are rendered here rather than on first view, as Drive books' are,
+ * because without R2 there is nowhere to fetch the PDF back from later. If any
+ * step fails the book is deleted again, so a bad upload can't leave a half-made
+ * book in the library.
+ */
+export async function uploadBookData(input) {
+    if (input.pdf.subarray(0, 5).toString('latin1') !== '%PDF-') {
+        throw new BookConflictError('That file is not a PDF.');
+    }
+    const title = (input.title ?? '').trim() || input.fileName.replace(/\.pdf$/i, '').trim();
+    if (!title)
+        throw new BookConflictError('A title is required.');
+    if (await getBookByName(title))
+        throw new BookConflictError(`A book called "${title}" already exists.`);
+    const driveFileId = `${UPLOAD_PREFIX}${crypto.randomUUID()}`;
+    const book = await upsertBook(driveFileId, input.fileName, title);
+    try {
+        const images = await renderAllPdfPages(input.pdf, imageRenderScale());
+        if (images.length === 0)
+            throw new BookConflictError('That PDF has no pages.');
+        for (let i = 0; i < images.length; i++) {
+            await writePageImageBase64(book.id, i + 1, images[i]);
+        }
+        if (blob.isConfigured())
+            await blob.putObject(uploadedPdfKey(driveFileId), input.pdf, 'application/pdf');
+        const batchId = await createOcrBatch([{ bookId: book.id, bookTitle: title, pdfBase64: input.pdf.toString('base64') }], input.model ?? DEFAULT_MODEL);
+        await createBatchJob(batchId, [book.id]);
+        await updateBookStatus(book.id, 'transcribing');
+        return { book: { ...book, status: 'transcribing' }, batchId, pageCount: images.length };
+    }
+    catch (err) {
+        const keys = await deleteBook(book.id).catch(() => []);
+        await Promise.all([...keys, uploadedPdfKey(driveFileId)].map((k) => blob.deleteObject(k)));
+        throw err;
+    }
+}
+/**
+ * Checks every OCR batch still in flight. The MCP server resumes these on
+ * startup, but a book added from the web app may never see an MCP session, so
+ * the HTTP server polls them alongside the sentiment batches.
+ */
+export async function processPendingOcrBatches() {
+    const pending = (await getRecentBatchJobs('ocr', 50)).filter((j) => j.status !== 'complete' && j.status !== 'failed');
+    const out = [];
+    for (const job of pending) {
+        try {
+            const r = await checkAndProcessBatch(job.batch_id);
+            out.push({ batchId: job.batch_id, status: r.status, processedCount: r.processedCount });
+        }
+        catch (err) {
+            process.stderr.write(`[library] Could not check OCR batch ${job.batch_id}: ${err instanceof Error ? err.message : String(err)}\n`);
+        }
+    }
+    return out;
 }

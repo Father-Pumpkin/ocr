@@ -176,6 +176,31 @@ comma-with-header from one mirror, tab-and-headerless from another.
 `uploadLexicon` deletes the lexicon row it created if parsing then fails, so a bad
 import can't strand an empty lexicon that shows up as a broken style.
 
+### Library management (web app)
+
+Members can add, hide and delete books from the Library page. These routes are keyed by
+`drive_file_id`, not title. An untranscribed Drive book has no DB row yet, and uploaded
+books carry a synthetic `upload:<uuid>` id in that column.
+
+- **Hide** (`books.hidden`) takes a book off the library for guests and out of every
+  "all books" analysis default (`resolveBooks`, `getAnalysisOptions`). It's reversible.
+  Members still get hidden books from `/api/library`, so they can unhide them.
+  Hiding an untranscribed Drive book creates its row to hold the flag.
+- **Delete** permanently removes pages, scores, OCR runs and images (R2
+  objects best-effort). Drive is read-only, so a Drive book comes back as
+  untranscribed. Refused while a book is `transcribing`.
+- **Transcribe** submits an untranscribed Drive book to the Batch API.
+- **Upload** takes a PDF as base64 JSON (≤32 MB, the Batch API's PDF limit). It
+  renders and stores the page images up front, because there's no Drive file to
+  render from later, and keeps the PDF in R2 when that's configured. Then it submits
+  the batch. A failure at any step deletes the book again.
+- The HTTP server's 5-minute batch poller now also processes **OCR** batches
+  (`processPendingOcrBatches`), so books added from the web app finish without an
+  MCP session.
+
+OCR quality flags (suspect/bad/failed) are still computed and stored but no longer
+shown anywhere in the UI.
+
 ### Access tiers
 
 Two tiers, enforced server-side per route and mirrored in the UI:

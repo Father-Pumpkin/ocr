@@ -51,7 +51,8 @@ const isGuest = (req) => req.user?.role !== 'member';
 booksRouter.get('/books/:name/pages', async (req, res) => {
     try {
         const { book, pages } = await getBookPagesData(bookName(req));
-        if (!book)
+        // A hidden book is off the public library; a guest with the URL shouldn't get it either.
+        if (!book || (book.hidden && isGuest(req)))
             throw new NotFoundError(`Book not found: "${bookName(req)}"`);
         res.json({ book, pages: isGuest(req) ? pages.map(redactPage) : pages, textRedacted: isGuest(req) });
     }

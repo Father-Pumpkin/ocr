@@ -277,7 +277,7 @@ export async function getAnalysisOptions(opts: { role?: 'member' | 'guest' } = {
     styles,
     dimensions: visibleDimensions,
     books: books
-      .filter((b) => b.status === 'complete')
+      .filter((b) => b.status === 'complete' && !b.hidden)
       .map((b) => ({ title: b.title, pageCount: b.page_count }))
       .sort((a, b) => a.title.localeCompare(b.title)),
     tags,

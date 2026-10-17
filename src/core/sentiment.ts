@@ -114,7 +114,7 @@ interface ScoreItem {
 
 async function resolveBooks(names?: string[]): Promise<BookRow[]> {
   const all = await getAllBooks();
-  if (!names || names.length === 0) return all.filter((b) => b.status === 'complete');
+  if (!names || names.length === 0) return all.filter((b) => b.status === 'complete' && !b.hidden);
   const wanted: BookRow[] = [];
   for (const n of names) {
     const b = await getBookByName(n);
