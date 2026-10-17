@@ -1007,6 +1007,12 @@ export async function createPostgresAdapter(): Promise<PostgresAdapter> {
   const sharedOptions: postgres.Options<Record<string, postgres.PostgresType>> = {
     // Redirect Postgres notices to stderr — default is console.log which corrupts MCP stdio
     onnotice: (notice) => process.stderr.write(`[OCR MCP] Postgres: ${notice.message}\n`),
+    // No server-side prepared statements. A cached plan for `SELECT * FROM books`
+    // fails with "cached plan must not change result type" once a migration adds
+    // a column, and through Neon's pooler those plans outlive the process that
+    // made them, so every deploy that added a column broke reads until the
+    // connections recycled. The planning cost saved is negligible at this scale.
+    prepare: false,
   };
 
   if (process.env.DATABASE_URL) {
