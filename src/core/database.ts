@@ -39,7 +39,14 @@ export async function getAllTags() { return (await getAdapter()).getAllTags(); }
 export async function setPageQuality(bookId: number, pageNumber: number, quality: string, reason: string | null) { return (await getAdapter()).setPageQuality(bookId, pageNumber, quality, reason); }
 export async function setPageIllustration(bookId: number, pageNumber: number, isIllustration: boolean) { return (await getAdapter()).setPageIllustration(bookId, pageNumber, isIllustration); }
 export async function hasExistingTranscription(bookId: number, pageNumber: number) { return (await getAdapter()).hasExistingTranscription(bookId, pageNumber); }
-export async function createBatchJob(batchId: string, bookIds: number[], kind?: string, scope?: string) { return (await getAdapter()).createBatchJob(batchId, bookIds, kind, scope); }
+// Lets the HTTP server start polling the moment there's a batch to poll for.
+const batchJobListeners: Array<() => void> = [];
+export function onBatchJobCreated(listener: () => void): void { batchJobListeners.push(listener); }
+export async function createBatchJob(batchId: string, bookIds: number[], kind?: string, scope?: string) {
+  const job = await (await getAdapter()).createBatchJob(batchId, bookIds, kind, scope);
+  for (const listener of batchJobListeners) listener();
+  return job;
+}
 export async function getBatchJob(batchId: string) { return (await getAdapter()).getBatchJob(batchId); }
 export async function updateBatchJobStatus(batchId: string, status: string) { return (await getAdapter()).updateBatchJobStatus(batchId, status); }
 export async function getInProgressBatchJobs() { return (await getAdapter()).getInProgressBatchJobs(); }

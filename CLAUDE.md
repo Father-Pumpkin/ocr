@@ -125,7 +125,10 @@ the Batch API has nothing to offer something that runs locally in milliseconds.
   hour — and is tracked in `batch_jobs` (`kind='sentiment'`), so it survives closing
   the tab or restarting the server. `GET /api/analysis/batches` lists them and the
   HTTP server polls in-flight batches every 5 minutes, so results land without
-  anyone pressing anything; `POST /api/analysis/batches/:id/check` forces it. Capped
+  anyone pressing anything. It polls **only while a batch is in flight**: a query
+  every 5 minutes would stop Neon ever suspending, so the loop stops when nothing
+  is pending and restarts on submission or the next signed-in request (see
+  `src/http/batch-poller.ts`); `POST /api/analysis/batches/:id/check` forces it. Capped
   by `MAX_BATCH_ITEMS_PER_RUN` (default 20,000) because nobody is waiting.
 
 Over-cap runs are refused with the numbers rather than half-spent, and a standard
