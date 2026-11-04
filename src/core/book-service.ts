@@ -618,6 +618,8 @@ export async function processPendingOcrBatches(): Promise<
       process.stderr.write(
         `[library] Could not check OCR batch ${job.batch_id}: ${err instanceof Error ? err.message : String(err)}\n`,
       );
+      // Still in flight as far as anyone knows, so the poller should come back.
+      out.push({ batchId: job.batch_id, status: 'check_failed', processedCount: 0 });
     }
   }
   return out;

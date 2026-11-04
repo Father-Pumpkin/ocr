@@ -699,9 +699,9 @@ export async function checkSentimentBatch(batchId: string): Promise<{
 }
 
 /**
- * Check every sentiment batch still in flight. Called on a timer by the HTTP
- * server so results land without anyone pressing a button; safe to call often,
- * since a batch that hasn't ended just reports its progress.
+ * Check every sentiment batch still in flight. Called by the HTTP server's
+ * batch poller so results land without anyone pressing a button; safe to call
+ * often, since a batch that hasn't ended just reports its progress.
  */
 export async function processPendingSentimentBatches(): Promise<
   Array<{ batchId: string; status: string; processedCount: number }>
@@ -718,6 +718,8 @@ export async function processPendingSentimentBatches(): Promise<
       process.stderr.write(
         `[analysis] Could not check sentiment batch ${job.batch_id}: ${err instanceof Error ? err.message : String(err)}\n`,
       );
+      // Still in flight as far as anyone knows, so the poller should come back.
+      out.push({ batchId: job.batch_id, status: 'check_failed', processedCount: 0 });
     }
   }
   return out;
