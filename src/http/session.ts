@@ -40,7 +40,7 @@ function sessionSecret(): string {
 /**
  * Public URL of the app, used to build the OAuth callback URL. No trailing
  * slash. May carry a path when the app is mounted under another site, e.g.
- * https://jahuntsmith.com/projects/feeling-narrative.
+ * https://jahuntsmith.com/projects/queering-narrative.
  */
 export function baseUrl(): string {
   return (process.env.BASE_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
@@ -48,7 +48,7 @@ export function baseUrl(): string {
 
 /**
  * The path the app is mounted under: '' at a domain root, else e.g.
- * '/projects/feeling-narrative'. Taken from BASE_URL so the mount point is
+ * '/projects/queering-narrative'. Taken from BASE_URL so the mount point is
  * configured in exactly one place — routes, cookies, redirects and the web
  * app's <base href> all follow it.
  */
