@@ -198,12 +198,18 @@ can't (static only), so jahuntsmith.com moves to a **Render static site**:
 
 1. **Render → New → Static Site** from the jahuntsmith.com repo (publish directory
    = wherever its HTML lives, usually the repo root).
-2. On that static site, **Redirects/Rewrites**, in this order:
+2. On that static site, **Redirects/Rewrites**:
 
    | Source | Destination | Action |
    | --- | --- | --- |
-   | `/projects/queering-narrative` | `/projects/queering-narrative/` | Redirect |
    | `/projects/queering-narrative/*` | `https://<this-service>.onrender.com/projects/queering-narrative/*` | Rewrite |
+   | `/projects/queering-narrative` | `https://<this-service>.onrender.com/projects/queering-narrative` | Rewrite |
+
+   Both are Rewrites. Don't make the bare path a Redirect to the trailing-slash
+   path: Render matches rule sources with or without a trailing slash, so that
+   rule also catches its own destination and loops forever (301 to itself). The
+   app serves the bare path directly; its injected `<base href>` keeps asset
+   URLs right either way.
 
 3. Add `jahuntsmith.com` (and `www`) as a custom domain on the static site, point
    DNS at Render as it instructs, and remove the domain from GitHub Pages.
