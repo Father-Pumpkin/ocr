@@ -109,9 +109,9 @@ function errorPage(message: string, err?: unknown): string {
           err instanceof Error ? err.message : String(err),
         )}</pre>`
       : '';
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Feeling Narrative</title></head>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Queering Narrative</title></head>
   <body style="font-family:system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1.25rem;color:#0f172a;line-height:1.5">
-    <h2 style="margin-bottom:.5rem">Feeling Narrative</h2>
+    <h2 style="margin-bottom:.5rem">Queering Narrative</h2>
     <p>${escapeHtml(message)}</p>${detail}
     <p style="margin-top:1.5rem"><a href="${basePath()}/" style="color:#2563eb;text-decoration:none">&larr; Back to sign in</a></p>
   </body></html>`;

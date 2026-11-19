@@ -49,7 +49,7 @@ function Header({ email }: { email: string }) {
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-accent-ink">
             <BookOpen className="h-5 w-5" />
           </span>
-          <span className="font-serif text-xl font-semibold tracking-tight text-ink">Feeling Narrative</span>
+          <span className="font-serif text-xl font-semibold tracking-tight text-ink">Queering Narrative</span>
         </Link>
         <div className="flex items-center gap-2 sm:gap-3">
           <RoleBadge />
