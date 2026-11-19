@@ -186,7 +186,7 @@ Point e.g. `ocr.yourdomain.com` at the Render service, then set `BASE_URL` to it
 add `https://ocr.yourdomain.com/api/auth/google/callback` to the Google client.
 After that, switching hosts is just a DNS change — no Google/login reconfig.
 
-## Mounting under another site's path (jahuntsmith.com/projects/feeling-narrative)
+## Mounting under another site's path (jahuntsmith.com/projects/queering-narrative)
 
 The app can live at a path on someone else's domain. The mount point comes from
 `BASE_URL` alone: give it a path and the server mounts every route under it,
@@ -198,22 +198,28 @@ can't (static only), so jahuntsmith.com moves to a **Render static site**:
 
 1. **Render → New → Static Site** from the jahuntsmith.com repo (publish directory
    = wherever its HTML lives, usually the repo root).
-2. On that static site, **Redirects/Rewrites**, in this order:
+2. On that static site, **Redirects/Rewrites**:
 
    | Source | Destination | Action |
    | --- | --- | --- |
-   | `/projects/feeling-narrative` | `/projects/feeling-narrative/` | Redirect |
-   | `/projects/feeling-narrative/*` | `https://<this-service>.onrender.com/projects/feeling-narrative/*` | Rewrite |
+   | `/projects/queering-narrative/*` | `https://<this-service>.onrender.com/projects/queering-narrative/*` | Rewrite |
+   | `/projects/queering-narrative` | `https://<this-service>.onrender.com/projects/queering-narrative` | Rewrite |
+
+   Both are Rewrites. Don't make the bare path a Redirect to the trailing-slash
+   path: Render matches rule sources with or without a trailing slash, so that
+   rule also catches its own destination and loops forever (301 to itself). The
+   app serves the bare path directly; its injected `<base href>` keeps asset
+   URLs right either way.
 
 3. Add `jahuntsmith.com` (and `www`) as a custom domain on the static site, point
    DNS at Render as it instructs, and remove the domain from GitHub Pages.
 4. On **this** service set:
-   - `BASE_URL=https://jahuntsmith.com/projects/feeling-narrative`
+   - `BASE_URL=https://jahuntsmith.com/projects/queering-narrative`
    - `TRUST_PROXY_HOPS=2` — the rewrite adds a proxy hop. Check it: sign in and
      look at the login limiter's key, or log `req.ips`; the client's real IP
      should be what `req.ip` returns. Too low and every visitor shares one
      login rate limit.
-5. Add `https://jahuntsmith.com/projects/feeling-narrative/api/auth/google/callback`
+5. Add `https://jahuntsmith.com/projects/queering-narrative/api/auth/google/callback`
    to the Google OAuth client's authorized redirect URIs.
 
 The `onrender.com` URL keeps working and redirects `/` to the mount point, but

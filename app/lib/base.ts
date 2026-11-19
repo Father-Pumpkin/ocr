@@ -1,6 +1,6 @@
 /**
  * The path the app is mounted under — '' at a domain root, or e.g.
- * '/projects/feeling-narrative' when served behind another site.
+ * '/projects/queering-narrative' when served behind another site.
  *
  * Read from the <base href> the server writes into index.html (derived from
  * BASE_URL), so one build runs at any mount point. Every absolute URL the app

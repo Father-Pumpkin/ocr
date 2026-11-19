@@ -51,7 +51,7 @@ export function AuthGate({ children }: { children: (user: Session) => ReactNode 
           <span className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-accent text-accent-ink">
             <BookOpen className="h-6 w-6" />
           </span>
-          <h1 className="font-serif text-2xl font-semibold text-ink">Feeling Narrative</h1>
+          <h1 className="font-serif text-2xl font-semibold text-ink">Queering Narrative</h1>
           <p className="mx-auto mt-2 max-w-xs text-sm leading-relaxed text-muted">
             A research library of transcribed Spanish children's books. Sign in with any Google account to
             browse it and build sentiment comparisons; editing is limited to approved accounts.

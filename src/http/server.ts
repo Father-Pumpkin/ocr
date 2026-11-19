@@ -50,7 +50,7 @@ export async function createHttpServer(port: number): Promise<Express> {
   app.use(express.json({ limit: '50mb' }));
 
   // Everything is mounted under the base path ('' at a domain root, e.g.
-  // '/projects/feeling-narrative' behind another site). Routes inside see paths
+  // '/projects/queering-narrative' behind another site). Routes inside see paths
   // relative to it, so nothing below needs to know where it's mounted.
   const base = basePath();
   const site = express.Router();
